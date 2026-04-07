@@ -1,0 +1,40 @@
+{
+  "name": "printflow-mis",
+  "version": "2.0.0",
+  "description": "PrintFlow MIS - Complete Printing Shop Management System",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "setup": "prisma generate && prisma db push && node prisma/seed.js",
+    "db:push": "prisma db push",
+    "db:seed": "node prisma/seed.js",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "next": "14.2.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "next-auth": "^4.24.7",
+    "bcryptjs": "^2.4.3",
+    "prisma": "^5.13.0",
+    "@prisma/client": "^5.13.0",
+    "recharts": "^2.12.0",
+    "react-hot-toast": "^2.4.1",
+    "clsx": "^2.1.0",
+    "date-fns": "^3.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.0",
+    "tailwindcss": "^3.4.0",
+    "postcss": "^8",
+    "autoprefixer": "^10"
+  }
+}

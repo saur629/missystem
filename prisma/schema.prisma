@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── USERS ────────────────────────────────────────────────────
+// Roles: SUPER_ADMIN | ADMIN | RECEPTION | DESIGNER | PRINTING | PRODUCTION | USER
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  username  String   @unique
+  password  String
+  role      String   @default("RECEPTION")
+  mobile    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders     Order[]
+  statusLogs StatusLog[]
+  attendance Attendance[]
+}
+
+// ─── CUSTOMERS ────────────────────────────────────────────────
+model Customer {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  mobile      String
+  email       String?
+  address     String?
+  city        String?
+  gstNo       String?
+  creditLimit Float    @default(0)
+  balance     Float    @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  orders     Order[]
+  invoices   Invoice[]
+  payments   Payment[]
+  quotations Quotation[]
+}
+
+// ─── ORDERS (Main Core Table) ─────────────────────────────────
+// orderType: FLEX | OFFSET | DIGITAL | SCREEN | OTHER
+// status: PENDING | DESIGNING | DESIGN_DONE | PRINTING | PRINT_DONE | QUALITY_CHECK | READY | DELIVERED | CANCELLED
+// priority: NORMAL | URGENT | EXPRESS
+model Order {
+  id           String    @id @default(cuid())
+  orderNo      String    @unique
+  date         DateTime  @default(now())
+  
+  // Customer
+  customerId   String
+  customer     Customer  @relation(fields: [customerId], references: [id])
+  
+  // Order Classification
+  orderType    String    @default("FLEX")
+  priority     String    @default("NORMAL")
+  status       String    @default("PENDING")
+  
+  // FLEX Fields
+  width        Float?
+  height       Float?
+  sqFt         Float?
+  ratePerSqFt  Float?
+  flexMedia    String?
+  
+  // OFFSET / DIGITAL / SCREEN Fields
+  jobName      String?
+  qty          Int?
+  paperType    String?
+  paperGsm     String?
+  size         String?
+  colors       String?
+  printSide    String?
+  lamination   String?
+  
+  // Common
+  description  String?
+  vendorName   String?
+  costPrice    Float?
+  
+  // Financials
+  subTotal     Float    @default(0)
+  discount     Float    @default(0)
+  gstPct       Float    @default(18)
+  gstAmount    Float    @default(0)
+  totalAmount  Float    @default(0)
+  advancePaid  Float    @default(0)
+  balanceDue   Float    @default(0)
+  
+  // Dates
+  dueDate      DateTime?
+  deliveredAt  DateTime?
+  notes        String?
+  
+  // Assigned operator
+  operatorId   String?
+  operator     User?     @relation(fields: [operatorId], references: [id])
+  
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  statusLogs   StatusLog[]
+  invoiceItems InvoiceItem[]
+}
+
+// ─── STATUS LOG ───────────────────────────────────────────────
+model StatusLog {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    String
+  notes     String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
+
+// ─── QUOTATIONS ───────────────────────────────────────────────
+// status: PENDING | APPROVED | REJECTED | CONVERTED
+model Quotation {
+  id          String   @id @default(cuid())
+  qtNo        String   @unique
+  date        DateTime @default(now())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id])
+  description String
+  qty         Int      @default(1)
+  rate        Float
+  subTotal    Float
+  discount    Float    @default(0)
+  gstPct      Float    @default(18)
+  gstAmount   Float
+  totalAmount Float
+  validTill   DateTime
+  notes       String?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ─── INVOICES ─────────────────────────────────────────────────
+// status: UNPAID | PARTIAL | PAID | OVERDUE
+model Invoice {
+  id          String        @id @default(cuid())
+  invNo       String        @unique
+  date        DateTime      @default(now())
+  customerId  String
+  customer    Customer      @relation(fields: [customerId], references: [id])
+  dueDate     DateTime
+  subTotal    Float
+  discount    Float         @default(0)
+  gstAmount   Float
+  totalAmount Float
+  paidAmount  Float         @default(0)
+  status      String        @default("UNPAID")
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  items    InvoiceItem[]
+  payments Payment[]
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  orderId     String?
+  order       Order?   @relation(fields: [orderId], references: [id])
+  description String
+  qty         Int      @default(1)
+  rate        Float
+  amount      Float
+  gstPct      Float    @default(18)
+  gstAmount   Float
+  totalAmount Float
+}
+
+// ─── PAYMENTS ─────────────────────────────────────────────────
+// mode: CASH | UPI | NEFT | RTGS | CHEQUE | CARD
+model Payment {
+  id        String   @id @default(cuid())
+  receiptNo String   @unique
+  date      DateTime @default(now())
+  customerId String
+  customer  Customer @relation(fields: [customerId], references: [id])
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id])
+  amount    Float
+  mode      String   @default("CASH")
+  reference String?
+  notes     String?
+  createdAt DateTime @default(now())
+}
+
+// ─── EXPENSES ─────────────────────────────────────────────────
+model Expense {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now())
+  category    String
+  description String
+  amount      Float
+  paidBy      String?
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+// ─── SUPPLIERS ────────────────────────────────────────────────
+model Supplier {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  contact   String
+  email     String?
+  gstNo     String?
+  items     String?
+  active    Boolean    @default(true)
+  createdAt DateTime   @default(now())
+
+  purchases Purchase[]
+}
+
+// ─── PURCHASE ORDERS ──────────────────────────────────────────
+// status: ORDERED | IN_TRANSIT | RECEIVED | CANCELLED
+model Purchase {
+  id          String         @id @default(cuid())
+  poNo        String         @unique
+  date        DateTime       @default(now())
+  supplierId  String
+  supplier    Supplier       @relation(fields: [supplierId], references: [id])
+  totalAmount Float
+  paidAmount  Float          @default(0)
+  status      String         @default("ORDERED")
+  notes       String?
+  createdAt   DateTime       @default(now())
+
+  items PurchaseItem[]
+}
+
+model PurchaseItem {
+  id          String   @id @default(cuid())
+  purchaseId  String
+  purchase    Purchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  itemName    String
+  unit        String   @default("PCS")
+  qty         Float
+  rate        Float
+  amount      Float
+}
+
+// ─── STOCK / INVENTORY ────────────────────────────────────────
+model StockItem {
+  id        String   @id @default(cuid())
+  name      String
+  category  String
+  unit      String
+  hsnCode   String?
+  gstPct    Float    @default(18)
+  saleRate  Float    @default(0)
+  stock     Float    @default(0)
+  minStock  Float    @default(10)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+// ─── ATTENDANCE ───────────────────────────────────────────────
+// status: PRESENT | ABSENT | LATE | LEAVE | HALF_DAY
+model Attendance {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  date     DateTime
+  checkIn  String?
+  checkOut String?
+  status   String   @default("PRESENT")
+  notes    String?
+
+  @@unique([userId, date])
+}
+
+// ─── SMS TEMPLATES ────────────────────────────────────────────
+model SmsTemplate {
+  id      String  @id @default(cuid())
+  name    String
+  content String
+  trigger String?
+  isAuto  Boolean @default(false)
+  active  Boolean @default(true)
+}
+
+model SmsLog {
+  id         String   @id @default(cuid())
+  mobile     String
+  message    String
+  template   String?
+  customerId String?
+  status     String   @default("SENT")
+  sentAt     DateTime @default(now())
+}
