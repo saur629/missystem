@@ -297,6 +297,7 @@ model SmsTemplate {
   active  Boolean @default(true)
 }
 
+
 model SmsLog {
   id         String   @id @default(cuid())
   mobile     String
@@ -305,4 +306,14 @@ model SmsLog {
   customerId String?
   status     String   @default("SENT")
   sentAt     DateTime @default(now())
+}
+
+
+model OtpCode {
+  id        String   @id @default(cuid())
+  mobile    String
+  code      String
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
