@@ -90,7 +90,7 @@ export default function ReportsPage() {
                         <div key={item.name} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5, fontSize:11 }}>
                           <div style={{ width:8, height:8, borderRadius:2, background:COLORS[i%COLORS.length], flexShrink:0 }}/>
                           <span style={{ flex:1, color:'#8892a4' }}>{item.name}</span>
-                          <span style={{ fontWeight:600 }}>{item.value}</span>
+                        <span style={{ fontWeight:600 }}>{String(item.value)}</span>
                         </div>
                       ))}
                     </CardBody>
