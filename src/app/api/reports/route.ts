@@ -39,12 +39,16 @@ export async function GET(req: NextRequest) {
     const customers = await prisma.customer.findMany({
       include: { orders: { select: { totalAmount: true, status: true } }, payments: { select: { amount: true } } },
     })
-    return NextResponse.json(customers.map(c => ({
-      ...c,
-      totalOrders: c.orders.length,
-      totalBusiness: c.orders.reduce((s, o) => s + o.totalAmount, 0),
-      totalPaid: c.payments.reduce((s, p) => s + p.amount, 0),
-    })))
+  return NextResponse.json(
+  customers.map((c: any) => ({
+    ...c,
+    totalOrders: c.orders.length,
+    totalBusiness: c.orders.reduce(
+      (s: number, o: any) => s + o.totalAmount,
+      0
+    ),
+  }))
+)
   }
 
   return NextResponse.json({ error: 'Unknown type' }, { status: 400 })

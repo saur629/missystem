@@ -46,18 +46,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div style={{ marginTop: 24, padding: 14, background: '#1e2535', borderRadius: 10, border: '1px solid #2a3348', fontSize: 11 }}>
-          <div style={{ fontWeight: 700, color: '#e2e8f0', marginBottom: 8 }}>Default Credentials</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-            {[['admin','admin123','Super Admin'],['reception','reception123','Reception'],['designer','designer123','Designer'],['printing','printing123','Printing'],['production','production123','Production']].map(([u,p,r]) => (
-              <div key={u} style={{ color: '#8892a4', cursor: 'pointer', padding: '2px 0' }} onClick={() => setForm({ username: u, password: p })}>
-                <span style={{ color: '#3b82f6' }}>{u}</span> / <span style={{ color: '#10b981' }}>{p}</span>
-                <div style={{ fontSize: 9, color: '#8892a4' }}>{r}</div>
-              </div>
-            ))}
-          </div>
-          <div style={{ fontSize: 10, color: '#8892a4', marginTop: 6 }}>Click any row to auto-fill</div>
-        </div>
+        
       </div>
     </div>
   )
