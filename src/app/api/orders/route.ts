@@ -33,12 +33,16 @@ export async function GET(req: NextRequest) {
   })
 
   // Parse stored items JSON
-  const result = orders.map(o => ({
-    ...o,
-    orderItems: (() => {
-      try { return JSON.parse((o as any).orderItemsJson || '[]') } catch { return [] }
-    })(),
-  }))
+ const result = orders.map((o: any) => ({
+  ...o,
+  orderItems: (() => {
+    try {
+      return JSON.parse(o.orderItemsJson || "[]")
+    } catch {
+      return []
+    }
+  })(),
+}))
 
   return NextResponse.json(result)
 }
