@@ -175,8 +175,8 @@ function printJobCard(order: any, shopName: string) {
             ${order.orderType === 'FLEX'
               ? `<td><strong>${item.description || `Banner ${i+1}`}</strong></td>
                  <td>${item.flexMedia || '—'}</td>
-                 <td style="text-align:center;font-weight:600">${item.width || '—'}</td>
-                 <td style="text-align:center;font-weight:600">${item.height || '—'}</td>
+               <td>${(item.width ?? item.widthFt) ?? '—'}</td>
+               <td>${(item.height ?? item.heightFt) ?? '—'}</td>
                  <td style="text-align:center;font-weight:700;color:#1a56db">${item.sqFt ? parseFloat(item.sqFt).toFixed(2) : '—'}</td>
                  <td style="text-align:center">${item.qty || 1}</td>
                  <td style="text-align:center">₹${item.ratePerSqFt || '—'}</td>
