@@ -44,7 +44,7 @@ export function Sidebar() {
       <div style={{ padding: '14px 16px', borderBottom: '1px solid #2a3348', display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ width: 32, height: 32, background: '#3b82f6', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>🖨️</div>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>PrintFlow MIS</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0' }}>R DIGITAL MIS</div>
           <div style={{ fontSize: 10, color: '#8892a4' }}>v2.0 — {role.replace('_',' ')}</div>
         </div>
       </div>

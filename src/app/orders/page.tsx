@@ -15,7 +15,6 @@ const ORDER_TYPES     = ['FLEX','OFFSET','DIGITAL','SCREEN','OTHER']
 const PAYMENT_METHODS = ['Cash','UPI','NEFT/RTGS','Cheque','Card','Credit (pay later)']
 const TASK_STATUSES   = ['PENDING','IN_PROGRESS','DONE'] as const
 const STATUS_COLOR: Record<string, string> = { PENDING: '#8892a4', IN_PROGRESS: '#f59e0b', DONE: '#10b981' }
-
 const INCH_TO_FT = 1 / 12
 
 const defaultFlexItem  = (): any => ({ id: Date.now() + Math.random(), description: '', widthFt: '', heightFt: '', unit: 'ft', sqFt: 0, ratePerSqFt: '', flexMedia: 'Star Flex', qty: '1', amount: 0, designStatus: 'PENDING', printStatus: 'PENDING' })
@@ -33,14 +32,291 @@ function calcFlexItem(item: any, changed: Record<string, string>) {
     wFt = (parseFloat(merged.widthFt)  || 0) * INCH_TO_FT
     hFt = (parseFloat(merged.heightFt) || 0) * INCH_TO_FT
   }
-  const r    = parseFloat(merged.ratePerSqFt) || 0
-  const q    = parseInt(merged.qty || '1') || 1
+  const r = parseFloat(merged.ratePerSqFt) || 0
+  const q = parseInt(merged.qty || '1') || 1
   const sqFt   = parseFloat((wFt * hFt).toFixed(4))
   const amount = parseFloat((sqFt * r * q).toFixed(2))
   return { ...merged, sqFt, amount }
 }
 
-// ─── FlexItemRow — defined OUTSIDE main component so React never remounts it ──
+// ─── Print Order Summary (A4 with QR) ─────────────────────────────────────────
+function printOrderSummary(order: any, shopName: string) {
+  const items: any[] = order.orderItems || []
+  const now = new Date()
+
+  // QR code data — order info as text encoded into QR
+  const qrData = encodeURIComponent(
+    `ORDER:${order.orderNo}|CUSTOMER:${order.customer?.name}|MOBILE:${order.customer?.mobile}|TOTAL:${order.totalAmount}|BAL:${order.balanceDue}|STATUS:${order.status}`
+  )
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrData}`
+
+  const statusColors: Record<string, string> = {
+    PENDING: '#6b7280', DESIGNING: '#8b5cf6', DESIGN_DONE: '#3b82f6',
+    PRINTING: '#f59e0b', PRINT_DONE: '#14b8a6', QUALITY_CHECK: '#f97316',
+    READY: '#10b981', DISPATCHED: '#3b82f6', DELIVERED: '#16a34a', CANCELLED: '#ef4444',
+  }
+  const stColor = statusColors[order.status] || '#6b7280'
+  const stLabel = ORDER_STATUS[order.status]?.label || order.status
+  const overdue = order.dueDate && new Date(order.dueDate) < now && !['DELIVERED','CANCELLED'].includes(order.status)
+
+  const itemsHtml = items.length > 0
+    ? items.map((item: any, i: number) => {
+        const w = item.widthFt ?? item.width ?? '—'
+        const h = item.heightFt ?? item.height ?? '—'
+        const u = item.unit || 'ft'
+        if (order.orderType === 'FLEX') {
+          return `<tr>
+            <td style="text-align:center;color:#1a56db;font-weight:700">${i+1}</td>
+            <td><strong>${item.description || `Banner ${i+1}`}</strong></td>
+            <td style="text-align:center">${item.flexMedia || '—'}</td>
+            <td style="text-align:center;font-weight:600">${w} × ${h} <span style="font-size:9px;color:#9ca3af">${u}</span></td>
+            <td style="text-align:center;color:#1a56db;font-weight:700">${item.sqFt ? parseFloat(item.sqFt).toFixed(2) : '—'}</td>
+            <td style="text-align:center">${item.qty || 1}</td>
+            <td style="text-align:center">₹${item.ratePerSqFt || '—'}</td>
+            <td style="text-align:right;color:#059669;font-weight:700">₹${(item.amount||0).toLocaleString('en-IN')}</td>
+          </tr>`
+        } else {
+          return `<tr>
+            <td style="text-align:center;color:#1a56db;font-weight:700">${i+1}</td>
+            <td><strong>${item.jobName || '—'}</strong><br><span style="font-size:9px;color:#6b7280">${item.description||''}</span></td>
+            <td style="text-align:center">${item.size || '—'}</td>
+            <td style="text-align:center">${item.colors || '—'}</td>
+            <td style="text-align:center">${item.printSide || '—'}</td>
+            <td style="text-align:center">${item.lamination || 'None'}</td>
+            <td style="text-align:center;font-weight:600">${item.qty || '—'}</td>
+            <td style="text-align:right;color:#059669;font-weight:700">₹${(item.amount||0).toLocaleString('en-IN')}</td>
+          </tr>`
+        }
+      }).join('')
+    : (() => {
+        const w = order.widthFt ?? order.width ?? '—'
+        const h = order.heightFt ?? order.height ?? '—'
+        return order.orderType === 'FLEX'
+          ? `<tr>
+              <td style="text-align:center;color:#1a56db;font-weight:700">1</td>
+              <td><strong>${order.description || '—'}</strong></td>
+              <td style="text-align:center">${order.flexMedia || '—'}</td>
+              <td style="text-align:center;font-weight:600">${w} × ${h} ft</td>
+              <td style="text-align:center;color:#1a56db;font-weight:700">${order.sqFt ? parseFloat(order.sqFt).toFixed(2) : '—'}</td>
+              <td style="text-align:center">1</td>
+              <td style="text-align:center">₹${order.ratePerSqFt || '—'}</td>
+              <td style="text-align:right;color:#059669;font-weight:700">₹${(order.totalAmount||0).toLocaleString('en-IN')}</td>
+            </tr>`
+          : `<tr>
+              <td style="text-align:center;color:#1a56db;font-weight:700">1</td>
+              <td><strong>${order.jobName || '—'}</strong></td>
+              <td style="text-align:center">${order.size || '—'}</td>
+              <td style="text-align:center">${order.colors || '—'}</td>
+              <td style="text-align:center">${order.printSide || '—'}</td>
+              <td style="text-align:center">${order.lamination || 'None'}</td>
+              <td style="text-align:center;font-weight:600">${order.qty || '—'}</td>
+              <td style="text-align:right;color:#059669;font-weight:700">₹${(order.totalAmount||0).toLocaleString('en-IN')}</td>
+            </tr>`
+      })()
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Order ${order.orderNo}</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:Arial,sans-serif;font-size:12px;color:#111;background:#fff}
+    @page{size:A4;margin:12mm}
+
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;padding-bottom:12px;border-bottom:3px solid #1a56db}
+    .shop{font-size:22px;font-weight:800;color:#1a56db}
+    .sub{font-size:12px;color:#6b7280;margin-top:2px}
+    .right-header{text-align:right}
+    .order-no{font-size:20px;font-weight:800;color:#1a56db;font-family:monospace}
+    .meta{font-size:10px;color:#6b7280;margin-top:3px}
+
+    .status-bar{display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:8px;margin-bottom:14px;border:1px solid #e5e7eb;background:#f9fafb}
+    .status-pill{padding:4px 14px;border-radius:20px;font-size:11px;font-weight:800;color:#fff}
+    .priority-pill{padding:3px 10px;border-radius:6px;font-size:10px;font-weight:700}
+
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+    .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px}
+    .info-box{border:1px solid #e5e7eb;border-radius:8px;padding:9px 11px}
+    .info-label{font-size:9px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.6px;margin-bottom:3px}
+    .info-value{font-size:13px;font-weight:700;color:#111}
+    .info-value.green{color:#059669}
+    .info-value.red{color:#dc2626}
+    .info-value.blue{color:#1a56db}
+
+    .section{font-size:10px;font-weight:700;color:#1a56db;background:#eff6ff;border-left:4px solid #1a56db;padding:5px 10px;margin:14px 0 8px;border-radius:0 4px 4px 0;text-transform:uppercase;letter-spacing:.5px}
+
+    table{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:12px}
+    th{background:#1a56db;color:#fff;padding:7px 7px;text-align:left;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+    td{padding:7px 7px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+    tr:nth-child(even) td{background:#f9fafb}
+
+    .totals-wrap{display:flex;justify-content:flex-end;margin-bottom:14px}
+    .totals-table{border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;min-width:260px}
+    .t-row{display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid #f3f4f6;font-size:12px}
+    .t-row:last-child{border-bottom:none}
+    .t-row.grand{background:#1a56db;color:#fff;font-size:14px;font-weight:800}
+    .t-row.balance-row{font-weight:700;font-size:13px}
+    .t-label{color:#6b7280}
+    .t-val{font-weight:600}
+
+    .qr-section{display:flex;align-items:flex-start;gap:16px;margin-bottom:14px;padding:12px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb}
+    .qr-img{width:100px;height:100px;flex-shrink:0;border:2px solid #e5e7eb;border-radius:6px}
+    .qr-info{flex:1}
+    .qr-title{font-size:10px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:6px}
+    .qr-line{font-size:10px;color:#374151;margin-bottom:3px}
+    .qr-line strong{color:#111}
+
+    .notes-box{border:1px solid #e5e7eb;border-radius:8px;padding:10px 12px;min-height:36px;font-size:11px;color:#374151;margin-bottom:14px;background:#fafafa}
+
+    .workflow{display:flex;margin-bottom:14px}
+    .wf-step{flex:1;text-align:center;font-size:8px;font-weight:700;border-top:3px solid #e5e7eb;padding-top:5px;color:#9ca3af}
+    .wf-step.done{border-color:#10b981;color:#059669}
+    .wf-step.active{border-color:#1a56db;color:#1a56db}
+
+    .sig-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:20px}
+    .sig-box{text-align:center}
+    .sig-line{height:32px;border-bottom:1px solid #374151;margin-bottom:4px}
+    .sig-label{font-size:9px;color:#6b7280}
+
+    .footer{margin-top:14px;text-align:center;font-size:8px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:7px}
+    .overdue{color:#dc2626;font-weight:700}
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div>
+      <div class="shop">🖨️ ${shopName}</div>
+      <div class="sub">Order Summary / Receipt</div>
+    </div>
+    <div class="right-header">
+      <div class="order-no">${order.orderNo}</div>
+      <div class="meta">Date: <strong>${formatDate(order.date)}</strong></div>
+      <div class="meta">Printed: ${now.toLocaleString('en-IN')}</div>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div class="status-bar">
+    <span class="status-pill" style="background:${stColor}">${stLabel}</span>
+    <span class="priority-pill" style="background:${order.priority==='EXPRESS'?'#fee2e2':order.priority==='URGENT'?'#fef3c7':'#f0fdf4'};color:${order.priority==='EXPRESS'?'#dc2626':order.priority==='URGENT'?'#d97706':'#16a34a'}">
+      ${order.priority==='EXPRESS'?'🔴':order.priority==='URGENT'?'🟡':'🟢'} ${order.priority}
+    </span>
+    ${overdue ? `<span style="color:#dc2626;font-weight:700;font-size:11px">⚠️ OVERDUE</span>` : ''}
+    <span style="margin-left:auto;font-size:10px;color:#6b7280">${order.orderType} ORDER</span>
+  </div>
+
+  <!-- WORKFLOW -->
+  <div class="workflow">
+    ${['PENDING','DESIGNING','DESIGN_DONE','PRINTING','PRINT_DONE','QUALITY_CHECK','READY','DISPATCHED','DELIVERED'].map(s => {
+      const all = ['PENDING','DESIGNING','DESIGN_DONE','PRINTING','PRINT_DONE','QUALITY_CHECK','READY','DISPATCHED','DELIVERED']
+      const ci = all.indexOf(order.status), ti = all.indexOf(s)
+      const cls = s===order.status?'active':ti<ci?'done':''
+      const labels: Record<string,string> = {PENDING:'Booked',DESIGNING:'Design',DESIGN_DONE:'Design✓',PRINTING:'Printing',PRINT_DONE:'Print✓',QUALITY_CHECK:'QC',READY:'Ready',DISPATCHED:'Dispatch',DELIVERED:'Delivered'}
+      return `<div class="wf-step ${cls}">${cls==='done'?'✓ ':cls==='active'?'● ':''}${labels[s]}</div>`
+    }).join('')}
+  </div>
+
+  <!-- CUSTOMER + ORDER INFO -->
+  <div class="two-col">
+    <div class="info-box">
+      <div class="info-label">Customer Name</div>
+      <div class="info-value">${order.customer?.name || '—'}</div>
+    </div>
+    <div class="info-box">
+      <div class="info-label">Mobile Number</div>
+      <div class="info-value blue">${order.customer?.mobile || '—'}</div>
+    </div>
+  </div>
+
+  <div class="three-col">
+    <div class="info-box">
+      <div class="info-label">Order Type</div>
+      <div class="info-value">${order.orderType}</div>
+    </div>
+    <div class="info-box">
+      <div class="info-label">Payment Method</div>
+      <div class="info-value">${order.paymentMethod || '—'}</div>
+    </div>
+    <div class="info-box">
+      <div class="info-label">Due Date</div>
+      <div class="info-value ${overdue ? 'overdue' : ''}">${order.dueDate ? formatDate(order.dueDate) : '—'}${overdue?' ⚠️':''}</div>
+    </div>
+    ${order.vendorName ? `<div class="info-box"><div class="info-label">Vendor</div><div class="info-value">${order.vendorName}</div></div>` : ''}
+  </div>
+
+  <!-- ITEMS TABLE -->
+  <div class="section">📋 Job Items (${items.length > 0 ? items.length : 1})</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:26px">Sr.</th>
+        ${order.orderType === 'FLEX'
+          ? `<th>Description</th><th>Media</th><th>Dimensions</th><th>Sq.Ft</th><th>Qty</th><th>Rate/sqft</th><th style="text-align:right">Amount</th>`
+          : `<th>Job Name</th><th>Size</th><th>Colors</th><th>Side</th><th>Lamination</th><th>Qty</th><th style="text-align:right">Amount</th>`
+        }
+      </tr>
+    </thead>
+    <tbody>${itemsHtml}</tbody>
+  </table>
+
+  <!-- TOTALS + QR SIDE BY SIDE -->
+  <div style="display:grid;grid-template-columns:1fr 220px;gap:16px;margin-bottom:14px;align-items:start">
+
+    <!-- QR CODE -->
+    <div class="qr-section">
+      <img class="qr-img" src="${qrUrl}" alt="QR Code" />
+      <div class="qr-info">
+        <div class="qr-title">📱 Scan to verify order</div>
+        <div class="qr-line"><strong>Order:</strong> ${order.orderNo}</div>
+        <div class="qr-line"><strong>Customer:</strong> ${order.customer?.name || '—'}</div>
+        <div class="qr-line"><strong>Mobile:</strong> ${order.customer?.mobile || '—'}</div>
+        <div class="qr-line"><strong>Status:</strong> ${stLabel}</div>
+        <div class="qr-line"><strong>Payment:</strong> ${order.paymentMethod || '—'}</div>
+        ${order.customer?.gstNo ? `<div class="qr-line"><strong>GST:</strong> ${order.customer.gstNo}</div>` : ''}
+      </div>
+    </div>
+
+    <!-- TOTALS -->
+    <div class="totals-table">
+      <div class="t-row"><span class="t-label">Subtotal</span><span class="t-val">₹${(order.subTotal||order.totalAmount||0).toLocaleString('en-IN')}</span></div>
+      ${order.discount > 0 ? `<div class="t-row"><span class="t-label">Discount</span><span class="t-val" style="color:#dc2626">- ₹${order.discount.toLocaleString('en-IN')}</span></div>` : ''}
+      <div class="t-row"><span class="t-label">GST (${order.gstPct||18}%)</span><span class="t-val">₹${(order.gstAmount||0).toLocaleString('en-IN')}</span></div>
+      <div class="t-row grand"><span>TOTAL</span><span>₹${(order.totalAmount||0).toLocaleString('en-IN')}</span></div>
+      <div class="t-row"><span class="t-label" style="color:#059669">Advance Paid</span><span class="t-val" style="color:#059669">₹${(order.advancePaid||0).toLocaleString('en-IN')}</span></div>
+      <div class="t-row balance-row" style="color:${order.balanceDue>0?'#dc2626':'#059669'}">
+        <span>Balance Due</span><span>₹${(order.balanceDue||0).toLocaleString('en-IN')}</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- NOTES -->
+  ${order.notes ? `<div class="section">📝 Notes / Instructions</div><div class="notes-box">${order.notes}</div>` : ''}
+
+  <!-- SIGNATURES -->
+  <div class="sig-row">
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Prepared By</div></div>
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Authorized Signatory</div></div>
+    <div class="sig-box"><div class="sig-line"></div><div class="sig-label">Customer Signature</div></div>
+  </div>
+
+  <div class="footer">
+    ${shopName} • Order Summary • ${order.orderNo} • Generated ${now.toLocaleString('en-IN')}
+  </div>
+
+</body>
+</html>`
+
+  const win = window.open('', '_blank', 'width=850,height=650')
+  if (!win) { toast.error('Allow popups to print'); return }
+  win.document.write(html)
+  win.document.close()
+  win.onload = () => { win.focus(); win.print(); win.close() }
+}
+
+// ─── FlexItemRow ──────────────────────────────────────────────────────────────
 const FlexItemRow = memo(function FlexItemRow({ item, idx, total, onChange, onRemove }: {
   item: any; idx: number; total: number
   onChange: (id: any, key: string, val: string) => void
@@ -52,7 +328,6 @@ const FlexItemRow = memo(function FlexItemRow({ item, idx, total, onChange, onRe
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: '#3b82f6' }}>Item {idx + 1}</span>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-          {/* ft / inches toggle */}
           <div style={{ display: 'flex', background: '#252d40', borderRadius: 6, overflow: 'hidden', border: '1px solid #2a3348' }}>
             {(['ft', 'inches'] as const).map(u => (
               <button key={u} type="button" onClick={() => onChange(item.id, 'unit', u)}
@@ -181,7 +456,7 @@ const PrintItemRow = memo(function PrintItemRow({ item, idx, total, onChange, on
   )
 })
 
-// ─── OrderFormBody — stable top-level component, receives everything as props ──
+// ─── OrderFormBody ────────────────────────────────────────────────────────────
 const OrderFormBody = memo(function OrderFormBody({
   form, items, customers, subTotalItems, afterDisc, gstAmt, total, balance, profit,
   onFormChange, onAddItem, onUpdateItem, onRemoveItem, onNewCustomer,
@@ -199,7 +474,6 @@ const OrderFormBody = memo(function OrderFormBody({
         </div>
         <Button type="button" onClick={onNewCustomer} style={{ marginBottom: 14 }}>+ New</Button>
       </div>
-
       <Grid cols={3} gap={10}>
         <FormGroup label="Order Type *">
           <Select value={form.orderType} onChange={e => onFormChange('orderType', e.target.value)}>
@@ -217,8 +491,6 @@ const OrderFormBody = memo(function OrderFormBody({
           <Input type="date" value={form.dueDate} onChange={e => onFormChange('dueDate', e.target.value)} />
         </FormGroup>
       </Grid>
-
-      {/* Items */}
       <div style={{ marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>
@@ -227,7 +499,6 @@ const OrderFormBody = memo(function OrderFormBody({
           </div>
           <Button type="button" size="sm" variant="primary" onClick={onAddItem}>+ Add Item</Button>
         </div>
-
         {form.orderType === 'FLEX'
           ? items.map((item: any, idx: number) => (
               <FlexItemRow key={item.id} item={item} idx={idx} total={items.length} onChange={onUpdateItem} onRemove={onRemoveItem} />
@@ -236,13 +507,11 @@ const OrderFormBody = memo(function OrderFormBody({
               <PrintItemRow key={item.id} item={item} idx={idx} total={items.length} onChange={onUpdateItem} onRemove={onRemoveItem} />
             ))
         }
-
         <div style={{ background: '#252d40', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
           <span style={{ color: '#8892a4' }}>{items.length} item(s) subtotal</span>
           <span style={{ fontWeight: 700, color: '#e2e8f0' }}>{formatCurrency(subTotalItems)}</span>
         </div>
       </div>
-
       <Grid cols={3} gap={12}>
         <FormGroup label="Vendor (if outsourced)">
           <Input value={form.vendorName} onChange={e => onFormChange('vendorName', e.target.value)} placeholder="Vendor name" />
@@ -256,11 +525,9 @@ const OrderFormBody = memo(function OrderFormBody({
           </Select>
         </FormGroup>
       </Grid>
-
       <FormGroup label="Notes / Instructions">
         <Textarea value={form.notes} onChange={e => onFormChange('notes', e.target.value)} rows={2} placeholder="Special instructions..." />
       </FormGroup>
-
       <Grid cols={3} gap={12}>
         <FormGroup label="Discount ₹">
           <Input type="number" value={form.discount} onChange={e => onFormChange('discount', e.target.value)} />
@@ -275,8 +542,6 @@ const OrderFormBody = memo(function OrderFormBody({
           <Input type="number" value={form.advancePaid} onChange={e => onFormChange('advancePaid', e.target.value)} />
         </FormGroup>
       </Grid>
-
-      {/* Summary */}
       <div style={{ background: '#1e2535', borderRadius: 10, padding: 14, border: '1px solid #2a3348' }}>
         <div style={{ display: 'grid', gridTemplateColumns: profit !== null ? '1fr 1fr 1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 12 }}>
           <div><div style={{ fontSize: 10, color: '#8892a4', marginBottom: 3 }}>Subtotal</div><div style={{ fontWeight: 600 }}>{formatCurrency(afterDisc)}</div></div>
@@ -294,6 +559,7 @@ const OrderFormBody = memo(function OrderFormBody({
 export default function OrdersPage() {
   const { data: session } = useSession()
   const role = (session?.user as any)?.role || 'USER'
+  const shopName = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_SHOP_NAME || 'PrintFlow') : 'PrintFlow'
 
   const [orders, setOrders]               = useState<any[]>([])
   const [customers, setCustomers]         = useState<any[]>([])
@@ -312,7 +578,6 @@ export default function OrdersPage() {
   const [items, setItems]                 = useState<any[]>([defaultFlexItem()])
   const [custForm, setCustForm]           = useState({ name: '', mobile: '', email: '', city: '', gstNo: '' })
 
-  // useCallback so child memo components never re-mount
   const handleFormChange = useCallback((k: string, v: string) => setForm(p => ({ ...p, [k]: v })), [])
 
   const handleUpdateItem = useCallback((id: any, key: string, val: string) => {
@@ -321,7 +586,6 @@ export default function OrdersPage() {
       if (['widthFt','heightFt','ratePerSqFt','qty','unit','flexMedia','description'].includes(key)) {
         return calcFlexItem(item, { [key]: val })
       }
-      // print item amount calc
       const updated = { ...item, [key]: val }
       if (key === 'sellingPrice' || key === 'qty') {
         const sp = parseFloat(key === 'sellingPrice' ? val : updated.sellingPrice) || 0
@@ -334,8 +598,6 @@ export default function OrdersPage() {
 
   const handleAddItem = useCallback(() => {
     setItems(prev => {
-      // read orderType from form at call time via closure — but form may be stale in memo
-      // so we derive from existing items' shape
       const isFlex = 'widthFt' in (prev[0] || {})
       return [...prev, isFlex ? defaultFlexItem() : defaultPrintItem()]
     })
@@ -352,7 +614,6 @@ export default function OrdersPage() {
     setItems([form.orderType === 'FLEX' ? defaultFlexItem() : defaultPrintItem()])
   }, [form.orderType])
 
-  // Totals
   const subTotalItems = items.reduce((s, i) => s + (i.amount || 0), 0)
   const disc          = parseFloat(form.discount || '0')
   const afterDisc     = subTotalItems - disc
@@ -362,7 +623,6 @@ export default function OrdersPage() {
   const costTotal     = form.costPrice ? parseFloat(form.costPrice) : null
   const profit        = costTotal !== null ? afterDisc - costTotal : null
 
-  // Fetch
   const fetchOrders = useCallback(async () => {
     setLoading(true)
     const params = new URLSearchParams()
@@ -427,13 +687,20 @@ export default function OrdersPage() {
     if (!editOrder) return
     setSaving(true)
     try {
-      const res = await fetch(`/api/orders/${editOrder.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(buildPayload()) })
-      if (!res.ok) throw new Error()
+      const payload = buildPayload()
+      const res = await fetch(`/api/orders/${editOrder.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || 'Failed')
+      }
       const updated = await res.json()
-      setOrders(p => p.map(o => o.id === updated.id ? updated : o))
+      setOrders(p => p.map(o => o.id === updated.id ? { ...updated, orderItems: (() => { try { return JSON.parse(updated.orderItemsJson || '[]') } catch { return [] } })() } : o))
       setEditOrder(null); resetForm()
       toast.success('✅ Order updated!')
-    } catch { toast.error('Failed to update order') }
+    } catch (err: any) { toast.error(err.message || 'Failed to update order') }
     setSaving(false)
   }
 
@@ -494,17 +761,14 @@ export default function OrdersPage() {
 
   const formProps = {
     form, items, customers, subTotalItems, afterDisc, gstAmt, total, balance, profit,
-    onFormChange: handleFormChange,
-    onAddItem:    handleAddItem,
-    onUpdateItem: handleUpdateItem,
-    onRemoveItem: handleRemoveItem,
+    onFormChange: handleFormChange, onAddItem: handleAddItem,
+    onUpdateItem: handleUpdateItem, onRemoveItem: handleRemoveItem,
     onNewCustomer: () => setShowCustModal(true),
   }
 
   return (
     <PageShell title="Orders" action={canBook ? { label: '+ New Order', onClick: () => setShowModal(true) } : undefined}>
       <div className="animate-in">
-
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 20 }}>
           <StatCard label="Total"       value={counts.total}      icon="📋" color="blue" />
           <StatCard label="Pending"     value={counts.pending}    icon="🔴" color="red" />
@@ -567,6 +831,7 @@ export default function OrdersPage() {
                             <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 4, background: allPrint  ? 'rgba(16,185,129,.15)' : 'rgba(139,92,246,.1)',  color: allPrint  ? '#10b981' : '#8b5cf6' }}>🖨️ {allPrint  ? 'Done' : 'Print'}</span>
                           </div>
                         </td>
+                        {/* Payment method — reads live from o.paymentMethod */}
                         <td style={{ fontSize: 11, color: '#8892a4' }}>{o.paymentMethod || '—'}</td>
                         <td style={{ color: '#10b981', fontWeight: 600 }}>{formatCurrency(o.totalAmount)}</td>
                         <td style={{ color: '#3b82f6' }}>{formatCurrency(o.advancePaid)}</td>
@@ -611,9 +876,18 @@ export default function OrdersPage() {
         <form onSubmit={handleEdit}><OrderFormBody {...formProps} /></form>
       </Modal>
 
-      {/* VIEW */}
-      <Modal open={!!viewOrder} onClose={() => setViewOrder(null)} title={`${viewOrder?.orderNo} — ${viewOrder?.customer?.name}`} width={680}
-        footer={<Button onClick={() => setViewOrder(null)}>Close</Button>}>
+      {/* VIEW MODAL — with print button */}
+      <Modal open={!!viewOrder} onClose={() => setViewOrder(null)}
+        title={`${viewOrder?.orderNo} — ${viewOrder?.customer?.name}`} width={700}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
+            <Button onClick={() => printOrderSummary({ ...viewOrder }, shopName)}
+              style={{ background: 'rgba(59,130,246,.15)', border: '1px solid rgba(59,130,246,.4)', color: '#3b82f6', fontWeight: 700 }}>
+              🖨️ Print Order Summary (A4)
+            </Button>
+            <Button onClick={() => setViewOrder(null)}>Close</Button>
+          </div>
+        }>
         {viewOrder && (() => {
           const vItems: any[] = viewOrder.orderItems || []
           const setVItems = (updated: any[]) => setViewOrder((v: any) => ({ ...v, orderItems: updated }))

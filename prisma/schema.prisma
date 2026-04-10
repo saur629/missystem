@@ -97,6 +97,8 @@ model Order {
   balanceDue     Float    @default(0)
   itemCount      Int      @default(1)
   orderItemsJson String?
+  paymentMethod String?
+  
   
   // Dates
   dueDate      DateTime?
