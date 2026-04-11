@@ -17,8 +17,20 @@ const TASK_STATUSES   = ['PENDING','IN_PROGRESS','DONE'] as const
 const STATUS_COLOR: Record<string, string> = { PENDING: '#8892a4', IN_PROGRESS: '#f59e0b', DONE: '#10b981' }
 const INCH_TO_FT = 1 / 12
 
-const defaultFlexItem  = (): any => ({ id: Date.now() + Math.random(), description: '', widthFt: '', heightFt: '', unit: 'ft', sqFt: 0, ratePerSqFt: '', flexMedia: 'Star Flex', qty: '1', amount: 0, designStatus: 'PENDING', printStatus: 'PENDING' })
-const defaultPrintItem = (): any => ({ id: Date.now() + Math.random(), jobName: '', qty: '', sellingPrice: '', size: '', colors: '4-color (CMYK)', printSide: 'SINGLE', lamination: '', description: '', amount: 0, designStatus: 'PENDING', printStatus: 'PENDING' })
+const defaultFlexItem = (): any => ({ 
+  id: Date.now() + Math.random(), 
+  description: '', widthFt: '', heightFt: '', unit: 'ft', 
+  sqFt: 0, ratePerSqFt: '', flexMedia: 'Star Flex', 
+  qty: '1', amount: 0, designCharge: '0',
+  designStatus: 'PENDING', printStatus: 'PENDING' 
+})
+const defaultPrintItem = (): any => ({ 
+  id: Date.now() + Math.random(), 
+  jobName: '', qty: '', sellingPrice: '', size: '', 
+  colors: '4-color (CMYK)', printSide: 'SINGLE', lamination: '', 
+  description: '', amount: 0, designCharge: '0',
+  designStatus: 'PENDING', printStatus: 'PENDING' 
+})
 const defaultForm = { customerId: '', orderType: 'FLEX', priority: 'NORMAL', dueDate: '', notes: '', vendorName: '', costPrice: '', discount: '0', gstPct: '18', advancePaid: '0', paymentMethod: 'Cash' }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -32,10 +44,11 @@ function calcFlexItem(item: any, changed: Record<string, string>) {
     wFt = (parseFloat(merged.widthFt)  || 0) * INCH_TO_FT
     hFt = (parseFloat(merged.heightFt) || 0) * INCH_TO_FT
   }
-  const r = parseFloat(merged.ratePerSqFt) || 0
-  const q = parseInt(merged.qty || '1') || 1
+  const r  = parseFloat(merged.ratePerSqFt) || 0
+  const q  = parseInt(merged.qty || '1') || 1
+  const dc = parseFloat(merged.designCharge || '0') || 0
   const sqFt   = parseFloat((wFt * hFt).toFixed(4))
-  const amount = parseFloat((sqFt * r * q).toFixed(2))
+  const amount = parseFloat((sqFt * r * q + dc).toFixed(2))
   return { ...merged, sqFt, amount }
 }
 
@@ -344,6 +357,8 @@ const FlexItemRow = memo(function FlexItemRow({ item, idx, total, onChange, onRe
           )}
         </div>
       </div>
+
+      {/* Row 1: dimensions + rate + qty */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
         <div>
           <div style={{ fontSize: 9, color: '#8892a4', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Width ({isFt ? 'ft' : 'in'})</div>
@@ -374,7 +389,9 @@ const FlexItemRow = memo(function FlexItemRow({ item, idx, total, onChange, onRe
           </div>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+
+      {/* Row 2: media + description + design charge */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
         <div>
           <div style={{ fontSize: 9, color: '#8892a4', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Flex Media</div>
           <Select value={item.flexMedia} onChange={e => onChange(item.id, 'flexMedia', e.target.value)}>
@@ -385,7 +402,24 @@ const FlexItemRow = memo(function FlexItemRow({ item, idx, total, onChange, onRe
           <div style={{ fontSize: 9, color: '#8892a4', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Description / Label</div>
           <Input value={item.description} onChange={e => onChange(item.id, 'description', e.target.value)} placeholder="e.g. Shop Banner, Left Side" />
         </div>
+        <div>
+          <div style={{ fontSize: 9, color: '#8892a4', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Design Charge ₹</div>
+          <Input type="number" step="0.01" min="0" value={item.designCharge || '0'}
+            onChange={e => onChange(item.id, 'designCharge', e.target.value)}
+            placeholder="0.00"
+            style={{ border: '1px solid rgba(139,92,246,.4)', background: 'rgba(139,92,246,.07)' }}
+          />
+        </div>
       </div>
+
+      {/* Design charge indicator */}
+      {parseFloat(item.designCharge || '0') > 0 && (
+        <div style={{ marginTop: 6, fontSize: 10, color: '#8b5cf6', display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+          <span style={{ background: 'rgba(139,92,246,.12)', padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(139,92,246,.2)' }}>
+            🎨 Design: ₹{parseFloat(item.designCharge).toLocaleString('en-IN')} included in amount
+          </span>
+        </div>
+      )}
     </div>
   )
 })
@@ -407,6 +441,8 @@ const PrintItemRow = memo(function PrintItemRow({ item, idx, total, onChange, on
           </button>
         )}
       </div>
+
+      {/* Row 1: job name + qty + rate + amount */}
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
         <div>
           <div style={{ fontSize: 9, color: '#8892a4', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Job Name *</div>
@@ -427,7 +463,9 @@ const PrintItemRow = memo(function PrintItemRow({ item, idx, total, onChange, on
           </div>
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+
+      {/* Row 2: size + colors + side + lamination + design charge */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 8 }}>
         <div>
           <div style={{ fontSize: 9, color: '#8892a4', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Size</div>
           <Input value={item.size} onChange={e => onChange(item.id, 'size', e.target.value)} placeholder="A4, 12x18..." />
@@ -451,7 +489,23 @@ const PrintItemRow = memo(function PrintItemRow({ item, idx, total, onChange, on
             {['Matt Lam','Glossy Lam','Soft Touch','UV Coating'].map(l => <option key={l}>{l}</option>)}
           </Select>
         </div>
+        <div>
+          <div style={{ fontSize: 9, color: '#8892a4', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Design Charge ₹</div>
+          <Input type="number" step="0.01" min="0" value={item.designCharge || '0'}
+            onChange={e => onChange(item.id, 'designCharge', e.target.value)}
+            placeholder="0.00"
+            style={{ border: '1px solid rgba(139,92,246,.4)', background: 'rgba(139,92,246,.07)' }}
+          />
+        </div>
       </div>
+
+      {parseFloat(item.designCharge || '0') > 0 && (
+        <div style={{ marginTop: 6, fontSize: 10, color: '#8b5cf6', display: 'flex', justifyContent: 'flex-end' }}>
+          <span style={{ background: 'rgba(139,92,246,.12)', padding: '2px 8px', borderRadius: 6, border: '1px solid rgba(139,92,246,.2)' }}>
+            🎨 Design: ₹{parseFloat(item.designCharge).toLocaleString('en-IN')} included
+          </span>
+        </div>
+      )}
     </div>
   )
 })
@@ -497,7 +551,7 @@ const OrderFormBody = memo(function OrderFormBody({
             {form.orderType === 'FLEX' ? '📏 Banner / Flex Items' : '🖨️ Print Items'}
             <span style={{ marginLeft: 8, fontSize: 10, color: '#8892a4', fontWeight: 400 }}>{items.length} item{items.length > 1 ? 's' : ''}</span>
           </div>
-          <Button type="button" size="sm" variant="primary" onClick={onAddItem}>+ Add Item</Button>
+         
         </div>
         {form.orderType === 'FLEX'
           ? items.map((item: any, idx: number) => (
@@ -507,10 +561,15 @@ const OrderFormBody = memo(function OrderFormBody({
               <PrintItemRow key={item.id} item={item} idx={idx} total={items.length} onChange={onUpdateItem} onRemove={onRemoveItem} />
             ))
         }
-        <div style={{ background: '#252d40', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-          <span style={{ color: '#8892a4' }}>{items.length} item(s) subtotal</span>
-          <span style={{ fontWeight: 700, color: '#e2e8f0' }}>{formatCurrency(subTotalItems)}</span>
-        </div>
+    {/* Add Item button at BOTTOM — appears right after last item */}
+<button type="button" onClick={onAddItem}
+  style={{ width: '100%', padding: '8px', marginBottom: 8, background: 'rgba(59,130,246,.08)', border: '1px dashed rgba(59,130,246,.4)', borderRadius: 8, color: '#3b82f6', fontSize: 12, cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+  ＋ Add Another Item
+</button>
+<div style={{ background: '#252d40', borderRadius: 8, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+  <span style={{ color: '#8892a4' }}>{items.length} item(s) subtotal</span>
+  <span style={{ fontWeight: 700, color: '#e2e8f0' }}>{formatCurrency(subTotalItems)}</span>
+</div>
       </div>
       <Grid cols={3} gap={12}>
         <FormGroup label="Vendor (if outsourced)">
@@ -580,21 +639,22 @@ export default function OrdersPage() {
 
   const handleFormChange = useCallback((k: string, v: string) => setForm(p => ({ ...p, [k]: v })), [])
 
-  const handleUpdateItem = useCallback((id: any, key: string, val: string) => {
-    setItems(prev => prev.map(item => {
-      if (item.id !== id) return item
-      if (['widthFt','heightFt','ratePerSqFt','qty','unit','flexMedia','description'].includes(key)) {
-        return calcFlexItem(item, { [key]: val })
-      }
-      const updated = { ...item, [key]: val }
-      if (key === 'sellingPrice' || key === 'qty') {
-        const sp = parseFloat(key === 'sellingPrice' ? val : updated.sellingPrice) || 0
-        const q  = parseInt(key === 'qty' ? val : updated.qty) || 0
-        updated.amount = sp * q
-      }
-      return updated
-    }))
-  }, [])
+const handleUpdateItem = useCallback((id: any, key: string, val: string) => {
+  setItems(prev => prev.map(item => {
+    if (item.id !== id) return item
+    if (['widthFt','heightFt','ratePerSqFt','qty','unit','flexMedia','description','designCharge'].includes(key)) {
+      return calcFlexItem(item, { [key]: val })
+    }
+    const updated = { ...item, [key]: val }
+    if (key === 'sellingPrice' || key === 'qty' || key === 'designCharge') {
+      const sp = parseFloat(key === 'sellingPrice' ? val : updated.sellingPrice) || 0
+      const q  = parseInt(key === 'qty' ? val : updated.qty) || 0
+      const dc = parseFloat(key === 'designCharge' ? val : updated.designCharge || '0') || 0
+      updated.amount = sp * q + dc
+    }
+    return updated
+  }))
+}, [])
 
   const handleAddItem = useCallback(() => {
     setItems(prev => {
