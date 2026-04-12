@@ -28,21 +28,21 @@ import {
 } from "recharts";
 import Link from "next/link";
 
-const MONTHLY = [
-  { m: "Apr", rev: 124000 },
-  { m: "May", rev: 138500 },
-  { m: "Jun", rev: 152000 },
-  { m: "Jul", rev: 148000 },
-  { m: "Aug", rev: 161000 },
-  { m: "Sep", rev: 158000 },
-  { m: "Oct", rev: 172000 },
-  { m: "Nov", rev: 168000 },
-  { m: "Dec", rev: 145000 },
-  { m: "Jan", rev: 159000 },
-  { m: "Feb", rev: 176000 },
-  { m: "Mar", rev: 184500 },
-];
 const TYPE_COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444"];
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<any>(null);
@@ -53,14 +53,16 @@ export default function DashboardPage() {
     Promise.all([
       fetch("/api/reports?type=summary").then((r) => r.json()),
       fetch("/api/orders").then((r) => r.json()),
-    ]).then(([sum, ords]) => {
-      setSummary(sum);
-      setOrders(Array.isArray(ords) ? ords.slice(0, 8) : []);
-      setLoading(false);
-    });
+    ])
+      .then(([sum, ords]) => {
+        setSummary(sum);
+        setOrders(Array.isArray(ords) ? ords : []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, []);
 
-  const statusCounts = ORDER_STATUS;
+  // Status counts from real orders
   const pending = orders.filter((o) => o.status === "PENDING").length;
   const inProgress = orders.filter((o) =>
     [
@@ -74,6 +76,7 @@ export default function DashboardPage() {
   const ready = orders.filter((o) => o.status === "READY").length;
   const delivered = orders.filter((o) => o.status === "DELIVERED").length;
 
+  // Order type pie
   const orderTypes = orders.reduce(
     (acc, o) => {
       acc[o.orderType] = (acc[o.orderType] || 0) + 1;
@@ -85,6 +88,28 @@ export default function DashboardPage() {
     name,
     value,
   }));
+
+  // Monthly revenue from real API data
+  const monthlyChart = MONTHS.map((m) => ({
+    m,
+    rev: summary?.monthlyRevenue?.[m] || 0,
+  }));
+
+  // Recent orders — latest 8
+  const recentOrders = [...orders]
+    .sort(
+      (a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    )
+    .slice(0, 8);
+
+  // Overdue orders
+  const overdue = orders.filter(
+    (o) =>
+      o.dueDate &&
+      new Date(o.dueDate) < new Date() &&
+      !["DELIVERED", "CANCELLED"].includes(o.status),
+  );
 
   const TT = ({ active, payload, label }: any) =>
     active && payload?.length ? (
@@ -107,40 +132,68 @@ export default function DashboardPage() {
   return (
     <PageShell title="Dashboard">
       <div className="animate-in">
-        {/* Stats */}
+        {/* ── ROW 1: Key Stats ── */}
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(5,1fr)",
             gap: 12,
-            marginBottom: 20,
+            marginBottom: 16,
           }}
         >
           <StatCard
             label="Total Billed"
             value={formatCurrency(summary?.totalBilled || 0)}
             icon="💰"
+            color="blue"
+          />
+          <StatCard
+            label="Collected"
+            value={formatCurrency(summary?.totalCollected || 0)}
+            icon="✅"
             color="green"
           />
           <StatCard
             label="Outstanding"
-            value={formatCurrency(
-              (summary?.totalBilled || 0) - (summary?.totalPaid || 0),
-            )}
+            value={formatCurrency(summary?.totalOutstanding || 0)}
             icon="⏳"
             color="yellow"
           />
           <StatCard
-            label="Pending Orders"
-            value={pending}
-            icon="🔴"
-            color="red"
+            label="Today's Revenue"
+            value={formatCurrency(summary?.todayRevenue || 0)}
+            icon="📅"
+            color="blue"
           />
+          <StatCard
+            label="Customers"
+            value={summary?.customers || 0}
+            icon="👥"
+            color="purple"
+          />
+        </div>
+
+        {/* ── ROW 2: Order Status Stats ── */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(5,1fr)",
+            gap: 12,
+            marginBottom: 16,
+          }}
+        >
+          <StatCard
+            label="Total Orders"
+            value={orders.length}
+            icon="📋"
+            color="blue"
+          />
+          <StatCard label="Pending" value={pending} icon="🔴" color="red" />
           <StatCard
             label="In Progress"
             value={inProgress}
             icon="⚙️"
-            color="blue"
+            color="yellow"
           />
           <StatCard
             label="Ready to Pickup"
@@ -148,9 +201,51 @@ export default function DashboardPage() {
             icon="📦"
             color="green"
           />
+          <StatCard
+            label="Delivered"
+            value={delivered}
+            icon="✅"
+            color="green"
+            sub={overdue.length > 0 ? `⚠ ${overdue.length} overdue` : undefined}
+          />
         </div>
 
-        {/* Charts */}
+        {/* ── ROW 3: Today + Month ── */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(4,1fr)",
+            gap: 12,
+            marginBottom: 16,
+          }}
+        >
+          <StatCard
+            label="Today's Orders"
+            value={summary?.todayOrderCount || 0}
+            icon="📋"
+            color="blue"
+          />
+          <StatCard
+            label="Today Collected"
+            value={formatCurrency(summary?.todayCollected || 0)}
+            icon="💳"
+            color="green"
+          />
+          <StatCard
+            label="Month Orders"
+            value={summary?.monthOrderCount || 0}
+            icon="📊"
+            color="blue"
+          />
+          <StatCard
+            label="Month Revenue"
+            value={formatCurrency(summary?.monthRevenue || 0)}
+            icon="📈"
+            color="green"
+          />
+        </div>
+
+        {/* ── ROW 4: Charts ── */}
         <div
           style={{
             display: "grid",
@@ -161,27 +256,56 @@ export default function DashboardPage() {
         >
           <Card>
             <CardHeader>
-              <CardTitle>Monthly Revenue</CardTitle>
+              <CardTitle>Monthly Revenue (from Orders)</CardTitle>
             </CardHeader>
             <CardBody>
-              <ResponsiveContainer width="100%" height={140}>
-                <BarChart data={MONTHLY} barSize={16}>
-                  <XAxis
-                    dataKey="m"
-                    tick={{ fill: "#8892a4", fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis hide />
-                  <Tooltip
-                    content={<TT />}
-                    cursor={{ fill: "rgba(255,255,255,.03)" }}
-                  />
-                  <Bar dataKey="rev" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {loading ? (
+                <div
+                  style={{
+                    height: 140,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#8892a4",
+                    fontSize: 12,
+                  }}
+                >
+                  Loading chart...
+                </div>
+              ) : monthlyChart.every((m) => m.rev === 0) ? (
+                <div
+                  style={{
+                    height: 140,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#8892a4",
+                    fontSize: 12,
+                  }}
+                >
+                  No revenue data yet — create some orders!
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={140}>
+                  <BarChart data={monthlyChart} barSize={16}>
+                    <XAxis
+                      dataKey="m"
+                      tick={{ fill: "#8892a4", fontSize: 10 }}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis hide />
+                    <Tooltip
+                      content={<TT />}
+                      cursor={{ fill: "rgba(255,255,255,.03)" }}
+                    />
+                    <Bar dataKey="rev" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </CardBody>
           </Card>
+
           <Card>
             <CardHeader>
               <CardTitle>Order Types</CardTitle>
@@ -252,14 +376,14 @@ export default function DashboardPage() {
                     padding: 20,
                   }}
                 >
-                  No data yet
+                  No orders yet
                 </div>
               )}
             </CardBody>
           </Card>
         </div>
 
-        {/* Status Quick View */}
+        {/* ── ROW 5: Status Quick Links ── */}
         <div
           style={{
             display: "grid",
@@ -321,10 +445,71 @@ export default function DashboardPage() {
           })}
         </div>
 
-        {/* Recent Orders */}
+        {/* ── ROW 6: Overdue Alert ── */}
+        {overdue.length > 0 && (
+          <div
+            style={{
+              background: "rgba(239,68,68,.08)",
+              border: "1px solid rgba(239,68,68,.25)",
+              borderRadius: 10,
+              padding: "10px 16px",
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "#ef4444",
+                marginBottom: 8,
+              }}
+            >
+              ⚠️ {overdue.length} Overdue Order{overdue.length > 1 ? "s" : ""}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {overdue.slice(0, 5).map((o) => (
+                <div
+                  key={o.id}
+                  style={{
+                    background: "rgba(239,68,68,.1)",
+                    border: "1px solid rgba(239,68,68,.2)",
+                    borderRadius: 6,
+                    padding: "4px 10px",
+                    fontSize: 11,
+                  }}
+                >
+                  <span
+                    style={{
+                      color: "#ef4444",
+                      fontWeight: 700,
+                      fontFamily: "monospace",
+                    }}
+                  >
+                    {o.orderNo}
+                  </span>
+                  <span style={{ color: "#8892a4", marginLeft: 6 }}>
+                    {o.customer?.name}
+                  </span>
+                  <span style={{ color: "#ef4444", marginLeft: 6 }}>
+                    Due: {formatDate(o.dueDate)}
+                  </span>
+                </div>
+              ))}
+              {overdue.length > 5 && (
+                <span
+                  style={{ fontSize: 11, color: "#8892a4", padding: "4px 0" }}
+                >
+                  +{overdue.length - 5} more
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── ROW 7: Recent Orders ── */}
         <Card>
           <CardHeader>
-            <CardTitle>Recent Orders</CardTitle>
+            <CardTitle>Recent Orders ({orders.length} total)</CardTitle>
             <Link
               href="/orders"
               style={{ fontSize: 12, color: "#3b82f6", textDecoration: "none" }}
@@ -349,6 +534,7 @@ export default function DashboardPage() {
                 <thead>
                   <tr>
                     <th>Order No</th>
+                    <th>Date</th>
                     <th>Customer</th>
                     <th>Mobile</th>
                     <th>Type</th>
@@ -359,32 +545,50 @@ export default function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {orders.length === 0 ? (
+                  {recentOrders.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         style={{
                           textAlign: "center",
                           color: "#8892a4",
-                          padding: 20,
+                          padding: 30,
                         }}
                       >
-                        No orders yet — create your first order!
+                        No orders yet —{" "}
+                        <Link href="/orders" style={{ color: "#3b82f6" }}>
+                          create your first order!
+                        </Link>
                       </td>
                     </tr>
                   ) : (
-                    orders.map((o) => {
+                    recentOrders.map((o) => {
                       const st = ORDER_STATUS[o.status];
+                      const isOverdue =
+                        o.dueDate &&
+                        new Date(o.dueDate) < new Date() &&
+                        !["DELIVERED", "CANCELLED"].includes(o.status);
                       return (
-                        <tr key={o.id}>
+                        <tr
+                          key={o.id}
+                          style={{
+                            background: isOverdue
+                              ? "rgba(239,68,68,.04)"
+                              : undefined,
+                          }}
+                        >
                           <td
                             style={{
                               color: "#3b82f6",
                               fontFamily: "monospace",
                               fontSize: 11,
+                              fontWeight: 600,
                             }}
                           >
                             {o.orderNo}
+                          </td>
+                          <td style={{ color: "#8892a4", fontSize: 11 }}>
+                            {formatDate(o.createdAt)}
                           </td>
                           <td style={{ fontWeight: 500 }}>
                             {o.customer?.name}
@@ -412,8 +616,8 @@ export default function DashboardPage() {
                             </Badge>
                           </td>
                           <td>
-                            <Badge color={st?.color}>
-                              {st?.icon} {st?.label}
+                            <Badge color={(st as any)?.color}>
+                              {(st as any)?.icon} {(st as any)?.label}
                             </Badge>
                           </td>
                         </tr>
