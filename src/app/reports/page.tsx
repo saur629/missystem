@@ -9,8 +9,9 @@ import {
   StatCard,
   Badge,
   Loading,
+  Empty,
 } from "@/components/ui";
-import { formatCurrency, ORDER_STATUS } from "@/lib/utils";
+import { formatCurrency, formatDate, ORDER_STATUS } from "@/lib/utils";
 import {
   BarChart,
   Bar,
@@ -56,7 +57,10 @@ const TT = ({ active, payload, label }: any) =>
       <div style={{ color: "#8892a4", marginBottom: 4 }}>{label}</div>
       {payload.map((p: any) => (
         <div key={p.name} style={{ color: p.color, fontWeight: 600 }}>
-          {p.name}: {formatCurrency(p.value)}
+          {p.name}:{" "}
+          {typeof p.value === "number" && p.value > 100
+            ? formatCurrency(p.value)
+            : p.value}
         </div>
       ))}
     </div>
@@ -64,19 +68,18 @@ const TT = ({ active, payload, label }: any) =>
 
 export default function ReportsPage() {
   const [tab, setTab] = useState("Overview");
-  const [summary, setSummary] = useState<any>(null);
   const [customers, setCustomers] = useState<any[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [custSearch, setCustSearch] = useState("");
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/reports?type=summary").then((r) => r.json()),
+      // Customers endpoint — now returns real totals from orders + payments
       fetch("/api/reports?type=customers").then((r) => r.json()),
       fetch("/api/orders").then((r) => r.json()),
     ])
-      .then(([sum, cls, ords]) => {
-        setSummary(sum);
+      .then(([cls, ords]) => {
         setCustomers(Array.isArray(cls) ? cls : []);
         setOrders(Array.isArray(ords) ? ords : []);
         setLoading(false);
@@ -84,26 +87,7 @@ export default function ReportsPage() {
       .catch(() => setLoading(false));
   }, []);
 
-  // ── Build real monthly revenue from orders ──────────────────
-  const monthlyMap = MONTHS.map((m) => {
-    const rev = summary?.monthlyRevenue?.[m] || 0;
-    // Estimate cost as advance paid (real data) — or 0 if none
-    return { m, rev, collected: 0 };
-  });
-
-  // Build monthly from actual orders
-  const ordersByMonth = MONTHS.map((month) => {
-    const monthOrders = orders.filter((o) => {
-      const d = new Date(o.createdAt);
-      return d.toLocaleDateString("en-IN", { month: "short" }) === month;
-    });
-    const rev = monthOrders.reduce((s, o) => s + (o.totalAmount || 0), 0);
-    const collected = monthOrders.reduce((s, o) => s + (o.advancePaid || 0), 0);
-    const balance = monthOrders.reduce((s, o) => s + (o.balanceDue || 0), 0);
-    return { m: month, rev, collected, balance, count: monthOrders.length };
-  });
-
-  // ── Summary numbers from real data ─────────────────────────
+  // ── Derived from orders ───────────────────────────────────────────────────
   const totalRevenue = orders.reduce((s, o) => s + (o.totalAmount || 0), 0);
   const totalCollected = orders.reduce((s, o) => s + (o.advancePaid || 0), 0);
   const totalBalance = orders.reduce((s, o) => s + (o.balanceDue || 0), 0);
@@ -112,22 +96,47 @@ export default function ReportsPage() {
   const deliveryRate = totalOrders
     ? Math.round((deliveredCount / totalOrders) * 100)
     : 0;
-
-  // Avg order value
   const avgOrderValue = totalOrders
     ? Math.round(totalRevenue / totalOrders)
     : 0;
+  const overdueOrders = orders.filter(
+    (o) =>
+      o.dueDate &&
+      new Date(o.dueDate) < new Date() &&
+      !["DELIVERED", "CANCELLED"].includes(o.status),
+  );
 
-  // Top revenue month
+  // ── Monthly breakdown from orders ─────────────────────────────────────────
+  const ordersByMonth = MONTHS.map((month) => {
+    const mo = orders.filter((o) => {
+      const d = new Date(o.createdAt || o.date);
+      return MONTHS[d.getMonth()] === month;
+    });
+    return {
+      m: month,
+      rev: mo.reduce((s, o) => s + (o.totalAmount || 0), 0),
+      collected: mo.reduce((s, o) => s + (o.advancePaid || 0), 0),
+      balance: mo.reduce((s, o) => s + (o.balanceDue || 0), 0),
+      count: mo.length,
+    };
+  });
   const topMonth = ordersByMonth.reduce(
     (best, m) => (m.rev > best.rev ? m : best),
     ordersByMonth[0],
   );
+  const chartData = ordersByMonth.filter((m) => m.rev > 0 || m.collected > 0);
 
-  // Order types pie
+  // ── Pie data ──────────────────────────────────────────────────────────────
   const ordersByType = orders.reduce(
     (acc, o) => {
       acc[o.orderType] = (acc[o.orderType] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+  const revenueByType = orders.reduce(
+    (acc, o) => {
+      acc[o.orderType] = (acc[o.orderType] || 0) + (o.totalAmount || 0);
       return acc;
     },
     {} as Record<string, number>,
@@ -136,33 +145,32 @@ export default function ReportsPage() {
     name,
     value: value as number,
   }));
-
-  // Revenue by type
-  const revenueByType = orders.reduce(
-    (acc, o) => {
-      acc[o.orderType] = (acc[o.orderType] || 0) + (o.totalAmount || 0);
-      return acc;
-    },
-    {} as Record<string, number>,
-  );
-
-  // Priority breakdown
   const byPriority = {
     NORMAL: orders.filter((o) => o.priority === "NORMAL").length,
     URGENT: orders.filter((o) => o.priority === "URGENT").length,
     EXPRESS: orders.filter((o) => o.priority === "EXPRESS").length,
   };
 
-  // Overdue orders
-  const overdueOrders = orders.filter(
-    (o) =>
-      o.dueDate &&
-      new Date(o.dueDate) < new Date() &&
-      !["DELIVERED", "CANCELLED"].includes(o.status),
-  );
+  // ── Customer filtering ────────────────────────────────────────────────────
+  const filteredCustomers = customers
+    .filter(
+      (c) =>
+        !custSearch ||
+        c.name.toLowerCase().includes(custSearch.toLowerCase()) ||
+        c.mobile?.includes(custSearch),
+    )
+    .sort((a, b) => b.totalBusiness - a.totalBusiness);
 
-  // Non-zero months for chart
-  const chartData = ordersByMonth.filter((m) => m.rev > 0 || m.collected > 0);
+  // ── Customer summary stats ────────────────────────────────────────────────
+  const custTotalBusiness = customers.reduce(
+    (s, c) => s + (c.totalBusiness || 0),
+    0,
+  );
+  const custTotalPaid = customers.reduce((s, c) => s + (c.totalPaid || 0), 0);
+  const custTotalOutstanding = customers.reduce(
+    (s, c) => s + (c.totalBalance || 0),
+    0,
+  );
 
   return (
     <PageShell title="Reports & Analytics">
@@ -203,10 +211,9 @@ export default function ReportsPage() {
           <Loading />
         ) : (
           <>
-            {/* ── OVERVIEW TAB ── */}
+            {/* ── OVERVIEW ── */}
             {tab === "Overview" && (
               <div>
-                {/* KPI Stats */}
                 <div
                   style={{
                     display: "grid",
@@ -244,7 +251,6 @@ export default function ReportsPage() {
                     sub={`${deliveryRate}% delivery rate`}
                   />
                 </div>
-
                 <div
                   style={{
                     display: "grid",
@@ -282,7 +288,6 @@ export default function ReportsPage() {
                   />
                 </div>
 
-                {/* Revenue chart */}
                 <div
                   style={{
                     display: "grid",
@@ -293,9 +298,7 @@ export default function ReportsPage() {
                 >
                   <Card>
                     <CardHeader>
-                      <CardTitle>
-                        Monthly Revenue vs Collected (Real Data)
-                      </CardTitle>
+                      <CardTitle>Monthly Revenue vs Collected</CardTitle>
                     </CardHeader>
                     <CardBody>
                       {chartData.length === 0 ? (
@@ -309,7 +312,7 @@ export default function ReportsPage() {
                             fontSize: 12,
                           }}
                         >
-                          No order data yet — create orders to see revenue chart
+                          No order data yet
                         </div>
                       ) : (
                         <ResponsiveContainer width="100%" height={180}>
@@ -425,7 +428,6 @@ export default function ReportsPage() {
                   </Card>
                 </div>
 
-                {/* Priority + Overdue */}
                 <div
                   style={{
                     display: "grid",
@@ -443,19 +445,16 @@ export default function ReportsPage() {
                           label: "Normal",
                           count: byPriority.NORMAL,
                           color: "#10b981",
-                          bg: "rgba(16,185,129,.1)",
                         },
                         {
                           label: "Urgent",
                           count: byPriority.URGENT,
                           color: "#f59e0b",
-                          bg: "rgba(245,158,11,.1)",
                         },
                         {
                           label: "Express",
                           count: byPriority.EXPRESS,
                           color: "#ef4444",
-                          bg: "rgba(239,68,68,.1)",
                         },
                       ].map((p) => (
                         <div
@@ -469,7 +468,7 @@ export default function ReportsPage() {
                         >
                           <div
                             style={{
-                              width: 80,
+                              width: 60,
                               fontSize: 12,
                               color: "#8892a4",
                             }}
@@ -630,7 +629,6 @@ export default function ReportsPage() {
                     color="red"
                   />
                 </div>
-
                 <div
                   style={{
                     display: "grid",
@@ -720,7 +718,6 @@ export default function ReportsPage() {
                       </table>
                     </div>
                   </Card>
-
                   <Card>
                     <CardHeader>
                       <CardTitle>Revenue by Order Type</CardTitle>
@@ -744,11 +741,9 @@ export default function ReportsPage() {
                               const typeOrders = orders.filter(
                                 (o: any) => o.orderType === type,
                               );
-
                               const avg = typeOrders.length
                                 ? Math.round(rev / typeOrders.length)
                                 : 0;
-
                               return (
                                 <tr key={type}>
                                   <td>
@@ -763,7 +758,7 @@ export default function ReportsPage() {
                                       fontWeight: 600,
                                     }}
                                   >
-                                    {formatCurrency(rev as number)}
+                                    {formatCurrency(rev)}
                                   </td>
                                   <td style={{ color: "#8892a4" }}>
                                     {formatCurrency(avg)}
@@ -793,13 +788,14 @@ export default function ReportsPage() {
               </div>
             )}
 
-            {/* ── CUSTOMERS TAB ── */}
+            {/* ── CUSTOMERS TAB — fully fixed ── */}
             {tab === "Customers" && (
               <div>
+                {/* Summary stats */}
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: "repeat(3,1fr)",
+                    gridTemplateColumns: "repeat(4,1fr)",
                     gap: 12,
                     marginBottom: 20,
                   }}
@@ -817,96 +813,257 @@ export default function ReportsPage() {
                     color="green"
                   />
                   <StatCard
-                    label="Outstanding"
-                    value={formatCurrency(
-                      customers.reduce(
-                        (s, c) => s + (c.totalBusiness - c.totalPaid),
-                        0,
-                      ),
-                    )}
+                    label="Total Business"
+                    value={formatCurrency(custTotalBusiness)}
+                    icon="💰"
+                    color="blue"
+                  />
+                  <StatCard
+                    label="Total Outstanding"
+                    value={formatCurrency(custTotalOutstanding)}
                     icon="⏳"
+                    color={custTotalOutstanding > 0 ? "red" : "green"}
+                  />
+                </div>
+
+                {/* Second row */}
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(3,1fr)",
+                    gap: 12,
+                    marginBottom: 20,
+                  }}
+                >
+                  <StatCard
+                    label="Total Paid (Payments)"
+                    value={formatCurrency(custTotalPaid)}
+                    icon="✅"
+                    color="green"
+                  />
+                  <StatCard
+                    label="Active Customers"
+                    value={customers.filter((c) => c.active).length}
+                    icon="🟢"
+                    color="green"
+                  />
+                  <StatCard
+                    label="With GST"
+                    value={customers.filter((c) => c.gstNo).length}
+                    icon="🧾"
                     color="yellow"
                   />
                 </div>
+
+                {/* Search */}
+                <div style={{ marginBottom: 12 }}>
+                  <input
+                    placeholder="🔍 Search customer by name or mobile..."
+                    value={custSearch}
+                    onChange={(e) => setCustSearch(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 12px",
+                      background: "#1e2535",
+                      border: "1px solid #2a3348",
+                      borderRadius: 8,
+                      color: "#e2e8f0",
+                      fontSize: 12,
+                      outline: "none",
+                    }}
+                  />
+                </div>
+
                 <Card>
                   <CardHeader>
-                    <CardTitle>Customer-wise Report</CardTitle>
-                  </CardHeader>
-                  {customers.length === 0 ? (
-                    <div
-                      style={{
-                        padding: 20,
-                        color: "#8892a4",
-                        textAlign: "center",
-                        fontSize: 12,
-                      }}
-                    >
-                      No customers yet
+                    <CardTitle>
+                      Customer-wise Report ({filteredCustomers.length})
+                    </CardTitle>
+                    <div style={{ fontSize: 11, color: "#8892a4" }}>
+                      Sorted by Total Business ↓ &nbsp;|&nbsp;
+                      <span style={{ color: "#10b981" }}>
+                        Paid = actual payments received
+                      </span>{" "}
+                      &nbsp;|&nbsp;
+                      <span style={{ color: "#ef4444" }}>
+                        Outstanding = current order balances
+                      </span>
                     </div>
+                  </CardHeader>
+                  {filteredCustomers.length === 0 ? (
+                    <Empty message="No customers found" />
                   ) : (
                     <div style={{ overflowX: "auto" }}>
                       <table>
                         <thead>
                           <tr>
+                            <th>#</th>
                             <th>Customer</th>
                             <th>City</th>
                             <th>Orders</th>
+                            <th>Payments</th>
                             <th>Total Business</th>
-                            <th>Collected</th>
+                            <th>Total Paid</th>
                             <th>Outstanding</th>
+                            <th>Last Order</th>
                             <th>Status</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {customers
-                            .sort((a, b) => b.totalBusiness - a.totalBusiness)
-                            .map((c) => {
-                              const outstanding = c.totalBusiness - c.totalPaid;
-                              return (
-                                <tr key={c.id}>
-                                  <td style={{ fontWeight: 600 }}>{c.name}</td>
-                                  <td style={{ color: "#8892a4" }}>
-                                    {c.city || "—"}
-                                  </td>
-                                  <td
+                          {filteredCustomers.map((c, idx) => {
+                            const outstanding = c.totalBalance;
+                            const collectionRate =
+                              c.totalBusiness > 0
+                                ? Math.round(
+                                    (c.totalPaid / c.totalBusiness) * 100,
+                                  )
+                                : 0;
+                            return (
+                              <tr key={c.id}>
+                                <td style={{ color: "#8892a4", fontSize: 11 }}>
+                                  {idx + 1}
+                                </td>
+                                <td>
+                                  <div style={{ fontWeight: 600 }}>
+                                    {c.name}
+                                  </div>
+                                  <div
+                                    style={{ fontSize: 10, color: "#8892a4" }}
+                                  >
+                                    {c.mobile}
+                                  </div>
+                                </td>
+                                <td style={{ color: "#8892a4", fontSize: 11 }}>
+                                  {c.city || "—"}
+                                </td>
+                                <td
+                                  style={{
+                                    textAlign: "center",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {c.totalOrders}
+                                </td>
+                                <td style={{ textAlign: "center" }}>
+                                  <span
                                     style={{
+                                      fontSize: 11,
+                                      padding: "1px 7px",
+                                      background: "rgba(59,130,246,.1)",
+                                      borderRadius: 10,
+                                      color: "#3b82f6",
                                       fontWeight: 600,
-                                      textAlign: "center",
                                     }}
                                   >
-                                    {c.totalOrders}
-                                  </td>
-                                  <td
+                                    {c.paymentCount}
+                                  </span>
+                                </td>
+                                <td
+                                  style={{ color: "#e2e8f0", fontWeight: 600 }}
+                                >
+                                  {formatCurrency(c.totalBusiness)}
+                                </td>
+                                <td>
+                                  <div
                                     style={{
                                       color: "#10b981",
                                       fontWeight: 600,
                                     }}
                                   >
-                                    {formatCurrency(c.totalBusiness)}
-                                  </td>
-                                  <td style={{ color: "#3b82f6" }}>
                                     {formatCurrency(c.totalPaid)}
-                                  </td>
-                                  <td
+                                  </div>
+                                  <div
                                     style={{
-                                      color:
-                                        outstanding > 0 ? "#ef4444" : "#10b981",
-                                      fontWeight: 600,
+                                      fontSize: 9,
+                                      color: "#8892a4",
+                                      marginTop: 2,
                                     }}
                                   >
-                                    {formatCurrency(outstanding)}
-                                  </td>
-                                  <td>
-                                    <Badge
-                                      color={outstanding > 0 ? "red" : "green"}
+                                    <div
+                                      style={{
+                                        height: 3,
+                                        background: "#252d40",
+                                        borderRadius: 2,
+                                        overflow: "hidden",
+                                        width: 60,
+                                      }}
                                     >
-                                      {outstanding > 0 ? "Due" : "Clear"}
-                                    </Badge>
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                      <div
+                                        style={{
+                                          height: "100%",
+                                          width: `${Math.min(100, collectionRate)}%`,
+                                          background: "#10b981",
+                                          borderRadius: 2,
+                                        }}
+                                      />
+                                    </div>
+                                    {collectionRate}% collected
+                                  </div>
+                                </td>
+                                <td
+                                  style={{
+                                    color:
+                                      outstanding > 0 ? "#ef4444" : "#10b981",
+                                    fontWeight: 700,
+                                  }}
+                                >
+                                  {formatCurrency(outstanding)}
+                                </td>
+                                <td style={{ fontSize: 11, color: "#8892a4" }}>
+                                  {c.lastOrderDate
+                                    ? new Date(
+                                        c.lastOrderDate,
+                                      ).toLocaleDateString("en-IN", {
+                                        day: "2-digit",
+                                        month: "short",
+                                        year: "2-digit",
+                                      })
+                                    : "—"}
+                                </td>
+                                <td>
+                                  <Badge
+                                    color={outstanding > 0 ? "red" : "green"}
+                                  >
+                                    {outstanding > 0 ? "⏳ Due" : "✅ Clear"}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
+                        <tfoot>
+                          <tr
+                            style={{ background: "#1e2535", fontWeight: 700 }}
+                          >
+                            <td
+                              colSpan={5}
+                              style={{
+                                textAlign: "right",
+                                color: "#8892a4",
+                                fontSize: 11,
+                              }}
+                            >
+                              TOTALS →
+                            </td>
+                            <td style={{ color: "#e2e8f0" }}>
+                              {formatCurrency(custTotalBusiness)}
+                            </td>
+                            <td style={{ color: "#10b981" }}>
+                              {formatCurrency(custTotalPaid)}
+                            </td>
+                            <td
+                              style={{
+                                color:
+                                  custTotalOutstanding > 0
+                                    ? "#ef4444"
+                                    : "#10b981",
+                              }}
+                            >
+                              {formatCurrency(custTotalOutstanding)}
+                            </td>
+                            <td colSpan={2}></td>
+                          </tr>
+                        </tfoot>
                       </table>
                     </div>
                   )}
@@ -951,71 +1108,69 @@ export default function ReportsPage() {
                   />
                 </div>
 
-                <div style={{ marginBottom: 16 }}>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle>Monthly Revenue Trend</CardTitle>
-                    </CardHeader>
-                    <CardBody>
-                      {chartData.length === 0 ? (
-                        <div
-                          style={{
-                            height: 160,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: "#8892a4",
-                            fontSize: 12,
-                          }}
-                        >
-                          No order data yet
-                        </div>
-                      ) : (
-                        <ResponsiveContainer width="100%" height={160}>
-                          <LineChart data={ordersByMonth}>
-                            <XAxis
-                              dataKey="m"
-                              tick={{ fill: "#8892a4", fontSize: 10 }}
-                              axisLine={false}
-                              tickLine={false}
-                            />
-                            <YAxis hide />
-                            <Tooltip content={<TT />} />
-                            <Line
-                              type="monotone"
-                              dataKey="rev"
-                              name="Revenue"
-                              stroke="#3b82f6"
-                              strokeWidth={2}
-                              dot={{ fill: "#3b82f6", r: 3 }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="collected"
-                              name="Collected"
-                              stroke="#10b981"
-                              strokeWidth={2}
-                              dot={{ fill: "#10b981", r: 3 }}
-                            />
-                            <Line
-                              type="monotone"
-                              dataKey="balance"
-                              name="Balance"
-                              stroke="#ef4444"
-                              strokeWidth={2}
-                              dot={{ fill: "#ef4444", r: 3 }}
-                              strokeDasharray="4 2"
-                            />
-                          </LineChart>
-                        </ResponsiveContainer>
-                      )}
-                    </CardBody>
-                  </Card>
-                </div>
+                <Card style={{ marginBottom: 16 }}>
+                  <CardHeader>
+                    <CardTitle>Monthly Revenue Trend</CardTitle>
+                  </CardHeader>
+                  <CardBody>
+                    {chartData.length === 0 ? (
+                      <div
+                        style={{
+                          height: 160,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          color: "#8892a4",
+                          fontSize: 12,
+                        }}
+                      >
+                        No order data yet
+                      </div>
+                    ) : (
+                      <ResponsiveContainer width="100%" height={160}>
+                        <LineChart data={ordersByMonth}>
+                          <XAxis
+                            dataKey="m"
+                            tick={{ fill: "#8892a4", fontSize: 10 }}
+                            axisLine={false}
+                            tickLine={false}
+                          />
+                          <YAxis hide />
+                          <Tooltip content={<TT />} />
+                          <Line
+                            type="monotone"
+                            dataKey="rev"
+                            name="Revenue"
+                            stroke="#3b82f6"
+                            strokeWidth={2}
+                            dot={{ fill: "#3b82f6", r: 3 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="collected"
+                            name="Collected"
+                            stroke="#10b981"
+                            strokeWidth={2}
+                            dot={{ fill: "#10b981", r: 3 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="balance"
+                            name="Balance"
+                            stroke="#ef4444"
+                            strokeWidth={2}
+                            dot={{ fill: "#ef4444", r: 3 }}
+                            strokeDasharray="4 2"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
+                  </CardBody>
+                </Card>
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Monthly Breakdown (Real Order Data)</CardTitle>
+                    <CardTitle>Monthly Breakdown</CardTitle>
                   </CardHeader>
                   <div style={{ overflowX: "auto" }}>
                     <table>
@@ -1034,11 +1189,12 @@ export default function ReportsPage() {
                           const rate = m.rev
                             ? Math.round((m.collected / m.rev) * 100)
                             : 0;
-                          const isEmpty = m.rev === 0 && m.count === 0;
                           return (
                             <tr
                               key={m.m}
-                              style={{ opacity: isEmpty ? 0.4 : 1 }}
+                              style={{
+                                opacity: m.rev === 0 && m.count === 0 ? 0.4 : 1,
+                              }}
                             >
                               <td style={{ fontWeight: 600 }}>{m.m}</td>
                               <td
