@@ -322,3 +322,27 @@ model OtpCode {
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
 }
+
+
+
+model JobType {
+  id        String   @id @default(cuid())
+  code      String?
+  name      String
+  rate      String
+  unit      String   @default("sqft")
+  gst       String   @default("18%")
+  tat       String   @default("1 Day")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model FlexMedia {
+  id        String   @id @default(cuid())
+  name      String
+  rate      String
+  unit      String   @default("sqft")
+  gst       String   @default("18%")
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
