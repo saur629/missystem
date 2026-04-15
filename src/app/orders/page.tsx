@@ -27,82 +27,14 @@ import {
 } from "@/lib/utils";
 import toast from "react-hot-toast";
 
-// ── WHATSAPP SENDER ────────────────────────────────────────────
-function sendWhatsApp(order: any, items: any[], shopName: string) {
-  const mobile = order.customer?.mobile || "";
-  if (!mobile) {
-    toast.error("No mobile number for this customer");
-    return;
-  }
-  const clean = mobile.replace(/[\s\-()]/g, "");
-  const phone = clean.startsWith("+")
-    ? clean.replace("+", "")
-    : clean.startsWith("0")
-      ? "91" + clean.slice(1)
-      : "91" + clean;
-
-  const itemLines =
-    items.length > 0
-      ? items
-          .map((item: any, i: number) => {
-            if (order.orderType === "FLEX") {
-              const w = item.widthFt ?? item.width ?? "?";
-              const h = item.heightFt ?? item.height ?? "?";
-              const u = item.unit || "ft";
-              const sqft = item.sqFt ? parseFloat(item.sqFt).toFixed(2) : "?";
-              return `  ${i + 1}. ${item.description || "Banner"} | ${w}x${h} ${u} | ${sqft} sqft | Qty:${item.qty || 1} | Rs.${(item.amount || 0).toLocaleString("en-IN")}`;
-            } else {
-              return `  ${i + 1}. ${item.jobName || "Job"} | Qty:${item.qty || 1} | ${item.size || ""} | Rs.${(item.amount || 0).toLocaleString("en-IN")}`;
-            }
-          })
-          .join("\n")
-      : order.orderType === "FLEX"
-        ? `  Rs.${(order.sqFt || 0).toFixed?.(2) || "?"} sqft @ Rs.${order.ratePerSqFt || "?"}/sqft`
-        : `  ${order.jobName || "Job"} x ${order.qty || 1}`;
-
-  const dueStr = order.dueDate
-    ? new Date(order.dueDate).toLocaleDateString("en-IN", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      })
-    : "";
-
-  const msg = `🖨️ *${shopName}*
-━━━━━━━━━━━━━━━━
-✅ *Order Confirmed!*
-
-📋 *Order No:* ${order.orderNo}
-👤 *Customer:* ${order.customer?.name}
-📅 *Date:* ${new Date(order.date || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-🔖 *Type:* ${order.orderType} | ${order.priority === "EXPRESS" ? "🔴 EXPRESS" : order.priority === "URGENT" ? "🟡 URGENT" : "🟢 NORMAL"}
-${dueStr ? `⏰ *Due Date:* ${dueStr}` : ""}
-━━━━━━━━━━━━━━━━
-📦 *Job Details:*
-${itemLines}
-━━━━━━━━━━━━━━━━
-💰 *Payment:*
-  Subtotal:  Rs.${(order.subTotal || order.totalAmount || 0).toLocaleString("en-IN")}
-  GST (${order.gstPct || 18}%): Rs.${(order.gstAmount || 0).toLocaleString("en-IN")}
-  *TOTAL:    Rs.${(order.totalAmount || 0).toLocaleString("en-IN")}*
-  Advance:   Rs.${(order.advancePaid || 0).toLocaleString("en-IN")}
-  *Balance:  Rs.${(order.balanceDue || 0).toLocaleString("en-IN")}*
-  Mode: ${order.paymentMethod || "—"}
-━━━━━━━━━━━━━━━━
-${order.notes ? `📝 *Note:* ${order.notes}\n━━━━━━━━━━━━━━━━\n` : ""}Thank you for your order! 🙏`;
-
-  const url = `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
-  window.open(url, "_blank");
-}
-
-// ── PRINT ORDER SUMMARY (A4) ───────────────────────────────────
-function printOrderSummary(order: any, itemsList: any[], shopName: string) {
+// ── BUILD ORDER HTML (shared by print + image export) ──────────
+function buildOrderHTML(order: any, items: any[], shopName: string): string {
   const now = new Date();
-  const items = itemsList || [];
   const qrData = encodeURIComponent(
     `ORDER:${order.orderNo}|CUSTOMER:${order.customer?.name}|MOBILE:${order.customer?.mobile}|TOTAL:${order.totalAmount}|BAL:${order.balanceDue}|STATUS:${order.status}`,
   );
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${qrData}`;
+
   const stColors: Record<string, string> = {
     PENDING: "#6b7280",
     DESIGNING: "#8b5cf6",
@@ -146,14 +78,15 @@ function printOrderSummary(order: any, itemsList: any[], shopName: string) {
   const curIdx = wfStatuses.indexOf(order.status);
 
   const buildRows = () => {
-    if (items.length === 0) {
+    const rowItems = items.length > 0 ? items : null;
+    if (!rowItems) {
       const w = order.widthFt ?? order.width ?? "—";
       const h = order.heightFt ?? order.height ?? "—";
       return order.orderType === "FLEX"
         ? `<tr><td style="text-align:center;color:#1a56db;font-weight:700">1</td><td>${order.description || "—"}</td><td>${order.flexMedia || "—"}</td><td style="text-align:center">${w}</td><td style="text-align:center">${h}</td><td style="text-align:center;font-size:9px;color:#6b7280">ft</td><td style="text-align:center;color:#1a56db;font-weight:700">${order.sqFt ? parseFloat(order.sqFt).toFixed(2) : "—"}</td><td style="text-align:center">1</td><td style="text-align:center">₹${order.ratePerSqFt || "—"}</td><td style="text-align:right;color:#059669;font-weight:700">₹${(order.totalAmount || 0).toLocaleString("en-IN")}</td></tr>`
         : `<tr><td style="text-align:center;color:#1a56db;font-weight:700">1</td><td>${order.jobName || "—"}</td><td>${order.size || "—"}</td><td style="text-align:center">${order.qty || "—"}</td><td>${order.colors || "—"}</td><td>${order.printSide || "—"}</td><td>${order.lamination || "None"}</td><td style="text-align:right;color:#059669;font-weight:700">₹${(order.totalAmount || 0).toLocaleString("en-IN")}</td></tr>`;
     }
-    return items
+    return rowItems
       .map((item: any, i: number) => {
         const w = item.widthFt ?? item.width ?? "—";
         const h = item.heightFt ?? item.height ?? "—";
@@ -166,117 +99,251 @@ function printOrderSummary(order: any, itemsList: any[], shopName: string) {
       .join("");
   };
 
-  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Order ${order.orderNo}</title>
-  <style>
-    *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:Arial,sans-serif;font-size:11px;color:#111;background:#fff}
-    @page{size:A4;margin:10mm}
-    .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;padding-bottom:10px;border-bottom:3px solid #1a56db}
-    .shop{font-size:18px;font-weight:800;color:#1a56db}.sub{font-size:11px;color:#6b7280;margin-top:2px}
-    .ono{font-size:17px;font-weight:800;color:#1a56db;font-family:monospace;text-align:right}
-    .meta{font-size:10px;color:#6b7280;text-align:right;margin-top:2px}
-    .sbar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:6px;margin-bottom:10px;border:1px solid #e5e7eb;background:#f9fafb}
-    .spill{padding:3px 12px;border-radius:20px;font-size:10px;font-weight:800;color:#fff}
-    .ppill{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700}
-    .wf{display:flex;margin-bottom:10px}
-    .wf-step{flex:1;text-align:center;font-size:7.5px;font-weight:700;border-top:3px solid #e5e7eb;padding-top:4px;color:#9ca3af;overflow:hidden}
-    .done{border-color:#10b981!important;color:#059669!important}.active{border-color:#1a56db!important;color:#1a56db!important}
-    .two{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
-    .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
-    .ibox{border:1px solid #e5e7eb;border-radius:6px;padding:7px 10px}
-    .ilabel{font-size:8px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
-    .ival{font-size:12px;font-weight:700;color:#111}
-    .sec{font-size:9px;font-weight:700;color:#1a56db;background:#eff6ff;border-left:4px solid #1a56db;padding:4px 8px;margin:10px 0 6px;border-radius:0 4px 4px 0;text-transform:uppercase}
-    table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px;table-layout:fixed}
-    th{background:#1a56db;color:#fff;padding:5px 4px;text-align:left;font-size:9px;font-weight:700;white-space:nowrap;overflow:hidden}
-    td{padding:5px 4px;border-bottom:1px solid #f3f4f6;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .bottom{display:grid;grid-template-columns:1fr 200px;gap:12px;margin-bottom:10px;align-items:start}
-    .qrs{display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb}
-    .totbox{border:1px solid #e5e7eb;border-radius:6px;overflow:hidden}
-    .trow{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #f3f4f6;font-size:11px}
-    .trow:last-child{border-bottom:none}.grand{background:#1a56db;color:#fff;font-size:13px;font-weight:800}
-    .tlabel{color:#6b7280}.tval{font-weight:600}
-    .sigrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:16px}
-    .sigbox{text-align:center}.sigline{height:28px;border-bottom:1px solid #374151;margin-bottom:4px}
-    .siglabel{font-size:9px;color:#6b7280}
-    .footer{margin-top:10px;text-align:center;font-size:8px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:6px}
-    .overdue{color:#dc2626;font-weight:700}
-    .nbox{border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;min-height:28px;font-size:10px;color:#374151;margin-bottom:10px;background:#fafafa}
-  </style></head><body>
-  <div class="hdr">
-    <div><div class="shop">🖨️ ${shopName}</div><div class="sub">Order Summary / Receipt</div></div>
-    <div><div class="ono">${order.orderNo}</div><div class="meta">Date: <strong>${new Date(order.date || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</strong></div><div class="meta">Printed: ${now.toLocaleString("en-IN")}</div></div>
-  </div>
-  <div class="sbar">
-    <span class="spill" style="background:${stColor}">${stLabel}</span>
-    <span class="ppill" style="background:${order.priority === "EXPRESS" ? "#fee2e2" : order.priority === "URGENT" ? "#fef3c7" : "#f0fdf4"};color:${order.priority === "EXPRESS" ? "#dc2626" : order.priority === "URGENT" ? "#d97706" : "#16a34a"}">${order.priority === "EXPRESS" ? "🔴" : order.priority === "URGENT" ? "🟡" : "🟢"} ${order.priority}</span>
-    ${overdue ? '<span class="overdue">⚠️ OVERDUE</span>' : ""}
-    <span style="margin-left:auto;font-size:10px;color:#6b7280">${order.orderType} ORDER</span>
-  </div>
-  <div class="wf">${wfStatuses
+  const flexTH = `<th style="width:24px">Sr.</th><th style="width:20%">Description</th><th style="width:14%">Media</th><th style="width:8%">W</th><th style="width:8%">H</th><th style="width:6%">Unit</th><th style="width:8%">Sq.Ft</th><th style="width:5%">Qty</th><th style="width:9%">Rate</th><th style="width:12%;text-align:right">Amount</th>`;
+  const printTH = `<th style="width:24px">Sr.</th><th style="width:24%">Job Name</th><th style="width:12%">Size</th><th style="width:7%">Qty</th><th style="width:14%">Colors</th><th style="width:10%">Side</th><th style="width:13%">Lamination</th><th style="width:12%;text-align:right">Amount</th>`;
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Order ${order.orderNo}</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{font-family:Arial,sans-serif;font-size:11px;color:#111;background:#fff;width:794px;padding:20px}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;padding-bottom:10px;border-bottom:3px solid #1a56db}
+  .shop{font-size:18px;font-weight:800;color:#1a56db}
+  .sub{font-size:11px;color:#6b7280;margin-top:2px}
+  .ono{font-size:17px;font-weight:800;color:#1a56db;font-family:monospace;text-align:right}
+  .meta{font-size:10px;color:#6b7280;text-align:right;margin-top:2px}
+  .sbar{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:6px;margin-bottom:10px;border:1px solid #e5e7eb;background:#f9fafb}
+  .spill{padding:3px 12px;border-radius:20px;font-size:10px;font-weight:800;color:#fff}
+  .ppill{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700}
+  .wf{display:flex;margin-bottom:10px}
+  .wf-step{flex:1;text-align:center;font-size:7.5px;font-weight:700;border-top:3px solid #e5e7eb;padding-top:4px;color:#9ca3af;overflow:hidden}
+  .done{border-color:#10b981!important;color:#059669!important}
+  .active{border-color:#1a56db!important;color:#1a56db!important}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px}
+  .ibox{border:1px solid #e5e7eb;border-radius:6px;padding:7px 10px}
+  .ilabel{font-size:8px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px}
+  .ival{font-size:12px;font-weight:700;color:#111}
+  .sec{font-size:9px;font-weight:700;color:#1a56db;background:#eff6ff;border-left:4px solid #1a56db;padding:4px 8px;margin:10px 0 6px;border-radius:0 4px 4px 0;text-transform:uppercase}
+  table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px;table-layout:fixed}
+  th{background:#1a56db;color:#fff;padding:5px 4px;text-align:left;font-size:9px;font-weight:700;white-space:nowrap;overflow:hidden}
+  td{padding:5px 4px;border-bottom:1px solid #f3f4f6;vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .bottom{display:grid;grid-template-columns:1fr 200px;gap:12px;margin-bottom:10px;align-items:start}
+  .qrs{display:flex;align-items:flex-start;gap:10px;padding:10px;border:1px solid #e5e7eb;border-radius:6px;background:#f9fafb}
+  .totbox{border:1px solid #e5e7eb;border-radius:6px;overflow:hidden}
+  .trow{display:flex;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #f3f4f6;font-size:11px}
+  .trow:last-child{border-bottom:none}
+  .grand{background:#1a56db;color:#fff;font-size:13px;font-weight:800}
+  .tlabel{color:#6b7280}.tval{font-weight:600}
+  .sigrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-top:16px}
+  .sigbox{text-align:center}
+  .sigline{height:28px;border-bottom:1px solid #374151;margin-bottom:4px}
+  .siglabel{font-size:9px;color:#6b7280}
+  .footer{margin-top:10px;text-align:center;font-size:8px;color:#9ca3af;border-top:1px solid #f3f4f6;padding-top:6px}
+  .overdue{color:#dc2626;font-weight:700}
+  .nbox{border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px;min-height:28px;font-size:10px;color:#374151;margin-bottom:10px;background:#fafafa}
+</style>
+</head>
+<body>
+<div class="hdr">
+  <div><div class="shop">🖨️ ${shopName}</div><div class="sub">Order Summary / Receipt</div></div>
+  <div><div class="ono">${order.orderNo}</div><div class="meta">Date: <strong>${new Date(order.date || Date.now()).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</strong></div><div class="meta">Printed: ${now.toLocaleString("en-IN")}</div></div>
+</div>
+<div class="sbar">
+  <span class="spill" style="background:${stColor}">${stLabel}</span>
+  <span class="ppill" style="background:${order.priority === "EXPRESS" ? "#fee2e2" : order.priority === "URGENT" ? "#fef3c7" : "#f0fdf4"};color:${order.priority === "EXPRESS" ? "#dc2626" : order.priority === "URGENT" ? "#d97706" : "#16a34a"}">${order.priority === "EXPRESS" ? "🔴" : order.priority === "URGENT" ? "🟡" : "🟢"} ${order.priority}</span>
+  ${overdue ? '<span class="overdue">⚠️ OVERDUE</span>' : ""}
+  <span style="margin-left:auto;font-size:10px;color:#6b7280">${order.orderType} ORDER</span>
+</div>
+<div class="wf">${wfStatuses
     .map((s, ti) => {
       const cls = s === order.status ? "active" : ti < curIdx ? "done" : "";
       return `<div class="wf-step ${cls}">${cls === "done" ? "✓ " : cls === "active" ? "● " : ""}${wfLabels[s]}</div>`;
     })
     .join("")}</div>
-  <div class="two">
-    <div class="ibox"><div class="ilabel">Customer Name</div><div class="ival">${order.customer?.name || "—"}</div></div>
-    <div class="ibox"><div class="ilabel">Mobile Number</div><div class="ival" style="color:#1a56db">${order.customer?.mobile || "—"}</div></div>
-  </div>
-  <div class="three">
-    <div class="ibox"><div class="ilabel">Order Type</div><div class="ival">${order.orderType}</div></div>
-    <div class="ibox"><div class="ilabel">Payment Method</div><div class="ival">${order.paymentMethod || "—"}</div></div>
-    <div class="ibox"><div class="ilabel">Due Date</div><div class="ival ${overdue ? "overdue" : ""}">${order.dueDate ? new Date(order.dueDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}${overdue ? " ⚠️" : ""}</div></div>
-  </div>
-  <div class="sec">📋 Job Items (${items.length || 1})</div>
-  <table><thead><tr>
-    ${
-      order.orderType === "FLEX"
-        ? `<th style="width:24px">Sr.</th><th style="width:20%">Description</th><th style="width:14%">Media</th><th style="width:8%">W</th><th style="width:8%">H</th><th style="width:6%">Unit</th><th style="width:8%">Sq.Ft</th><th style="width:5%">Qty</th><th style="width:9%">Rate</th><th style="width:12%;text-align:right">Amount</th>`
-        : `<th style="width:24px">Sr.</th><th style="width:24%">Job Name</th><th style="width:12%">Size</th><th style="width:7%">Qty</th><th style="width:14%">Colors</th><th style="width:10%">Side</th><th style="width:13%">Lamination</th><th style="width:12%;text-align:right">Amount</th>`
-    }
-  </tr></thead><tbody>${buildRows()}</tbody></table>
-  <div class="bottom">
-    <div class="qrs">
-      <img src="${qrUrl}" style="width:80px;height:80px;flex-shrink:0;border:2px solid #e5e7eb;border-radius:4px" alt="QR"/>
-      <div style="flex:1">
-        <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:4px">📱 Scan to verify</div>
-        <div style="font-size:9px;color:#374151;margin-bottom:2px"><strong>Order:</strong> ${order.orderNo}</div>
-        <div style="font-size:9px;color:#374151;margin-bottom:2px"><strong>Customer:</strong> ${order.customer?.name || "—"}</div>
-        <div style="font-size:9px;color:#374151;margin-bottom:2px"><strong>Mobile:</strong> ${order.customer?.mobile || "—"}</div>
-        <div style="font-size:9px;color:#374151"><strong>Status:</strong> ${stLabel}</div>
-      </div>
-    </div>
-    <div class="totbox">
-      <div class="trow"><span class="tlabel">Subtotal</span><span class="tval">₹${(order.subTotal || order.totalAmount || 0).toLocaleString("en-IN")}</span></div>
-      ${(order.discount || 0) > 0 ? `<div class="trow"><span class="tlabel">Discount</span><span class="tval" style="color:#dc2626">- ₹${(order.discount || 0).toLocaleString("en-IN")}</span></div>` : ""}
-      <div class="trow"><span class="tlabel">GST (${order.gstPct || 18}%)</span><span class="tval">₹${(order.gstAmount || 0).toLocaleString("en-IN")}</span></div>
-      <div class="trow grand"><span>TOTAL</span><span>₹${(order.totalAmount || 0).toLocaleString("en-IN")}</span></div>
-      <div class="trow"><span class="tlabel" style="color:#059669">Advance Paid</span><span class="tval" style="color:#059669">₹${(order.advancePaid || 0).toLocaleString("en-IN")}</span></div>
-      <div class="trow" style="font-weight:700;font-size:12px;color:${(order.balanceDue || 0) > 0 ? "#dc2626" : "#059669"}"><span>Balance Due</span><span>₹${(order.balanceDue || 0).toLocaleString("en-IN")}</span></div>
+<div class="two">
+  <div class="ibox"><div class="ilabel">Customer Name</div><div class="ival">${order.customer?.name || "—"}</div></div>
+  <div class="ibox"><div class="ilabel">Mobile Number</div><div class="ival" style="color:#1a56db">${order.customer?.mobile || "—"}</div></div>
+</div>
+<div class="three">
+  <div class="ibox"><div class="ilabel">Order Type</div><div class="ival">${order.orderType}</div></div>
+  <div class="ibox"><div class="ilabel">Payment Method</div><div class="ival">${order.paymentMethod || "—"}</div></div>
+  <div class="ibox"><div class="ilabel">Due Date</div><div class="ival ${overdue ? "overdue" : ""}">${order.dueDate ? new Date(order.dueDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—"}${overdue ? " ⚠️" : ""}</div></div>
+</div>
+<div class="sec">📋 Job Items (${items.length || 1})</div>
+<table><thead><tr>${order.orderType === "FLEX" ? flexTH : printTH}</tr></thead><tbody>${buildRows()}</tbody></table>
+<div class="bottom">
+  <div class="qrs">
+    <img src="${qrUrl}" style="width:80px;height:80px;flex-shrink:0;border:2px solid #e5e7eb;border-radius:4px" alt="QR"/>
+    <div style="flex:1">
+      <div style="font-size:9px;font-weight:700;color:#6b7280;text-transform:uppercase;margin-bottom:4px">📱 Scan to verify</div>
+      <div style="font-size:9px;color:#374151;margin-bottom:2px"><strong>Order:</strong> ${order.orderNo}</div>
+      <div style="font-size:9px;color:#374151;margin-bottom:2px"><strong>Customer:</strong> ${order.customer?.name || "—"}</div>
+      <div style="font-size:9px;color:#374151;margin-bottom:2px"><strong>Mobile:</strong> ${order.customer?.mobile || "—"}</div>
+      <div style="font-size:9px;color:#374151"><strong>Status:</strong> ${stLabel}</div>
     </div>
   </div>
-  ${order.notes ? `<div class="sec">📝 Notes</div><div class="nbox">${order.notes}</div>` : ""}
-  <div class="sigrow">
-    <div class="sigbox"><div class="sigline"></div><div class="siglabel">Prepared By</div></div>
-    <div class="sigbox"><div class="sigline"></div><div class="siglabel">Authorized Signatory</div></div>
-    <div class="sigbox"><div class="sigline"></div><div class="siglabel">Customer Signature</div></div>
+  <div class="totbox">
+    <div class="trow"><span class="tlabel">Subtotal</span><span class="tval">₹${(order.subTotal || order.totalAmount || 0).toLocaleString("en-IN")}</span></div>
+    ${(order.discount || 0) > 0 ? `<div class="trow"><span class="tlabel">Discount</span><span class="tval" style="color:#dc2626">- ₹${(order.discount || 0).toLocaleString("en-IN")}</span></div>` : ""}
+    <div class="trow"><span class="tlabel">GST (${order.gstPct || 18}%)</span><span class="tval">₹${(order.gstAmount || 0).toLocaleString("en-IN")}</span></div>
+    <div class="trow grand"><span>TOTAL</span><span>₹${(order.totalAmount || 0).toLocaleString("en-IN")}</span></div>
+    <div class="trow"><span class="tlabel" style="color:#059669">Advance Paid</span><span class="tval" style="color:#059669">₹${(order.advancePaid || 0).toLocaleString("en-IN")}</span></div>
+    <div class="trow" style="font-weight:700;font-size:12px;color:${(order.balanceDue || 0) > 0 ? "#dc2626" : "#059669"}"><span>Balance Due</span><span>₹${(order.balanceDue || 0).toLocaleString("en-IN")}</span></div>
   </div>
-  <div class="footer">${shopName} • Order Summary • ${order.orderNo} • Generated ${now.toLocaleString("en-IN")}</div>
-  </body></html>`;
+</div>
+${order.notes ? `<div class="sec">📝 Notes</div><div class="nbox">${order.notes}</div>` : ""}
+<div class="sigrow">
+  <div class="sigbox"><div class="sigline"></div><div class="siglabel">Prepared By</div></div>
+  <div class="sigbox"><div class="sigline"></div><div class="siglabel">Authorized Signatory</div></div>
+  <div class="sigbox"><div class="sigline"></div><div class="siglabel">Customer Signature</div></div>
+</div>
+<div class="footer">${shopName} • Order Summary • ${order.orderNo} • Generated ${now.toLocaleString("en-IN")}</div>
+</body>
+</html>`;
+}
 
-  const win = window.open("", "_blank", "width=860,height=660");
+// ── PRINT A4 ───────────────────────────────────────────────────
+function printOrderSummary(order: any, items: any[], shopName: string) {
+  const html = buildOrderHTML(order, items, shopName);
+  const win = window.open("", "_blank", "width=860,height=700");
   if (!win) {
     toast.error("Allow popups to print");
     return;
   }
-  win.document.write(html);
+  win.document.write(`<style>@page{size:A4;margin:10mm}</style>` + html);
   win.document.close();
   win.onload = () => {
     win.focus();
     win.print();
     win.close();
   };
+}
+
+// ── SEND AS IMAGE TO WHATSAPP ──────────────────────────────────
+// Strategy:
+// 1. Open the order HTML in a hidden iframe / new window
+// 2. Use html2canvas to capture it as PNG
+// 3. Offer Web Share API (mobile) OR auto-download + open WhatsApp (desktop)
+async function sendOrderImageToWhatsApp(
+  order: any,
+  items: any[],
+  shopName: string,
+) {
+  const mobile = order.customer?.mobile || "";
+  if (!mobile) {
+    toast.error("No mobile number for this customer");
+    return;
+  }
+
+  const clean = mobile.replace(/[\s\-()]/g, "");
+  const phone = clean.startsWith("+")
+    ? clean.replace("+", "")
+    : clean.startsWith("0")
+      ? "91" + clean.slice(1)
+      : "91" + clean;
+
+  const html = buildOrderHTML(order, items, shopName);
+
+  // Load html2canvas into current page (avoids popup blockers entirely)
+  const loadH2C = (): Promise<void> => {
+    if ((window as any).html2canvas) return Promise.resolve();
+    return new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src =
+        "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+      s.onload = () => res();
+      s.onerror = () => rej(new Error("Failed to load html2canvas"));
+      document.head.appendChild(s);
+    });
+  };
+
+  try {
+    await loadH2C();
+  } catch {
+    toast.error("Could not load image renderer — try Print A4 instead");
+    return;
+  }
+
+  // Create hidden off-screen iframe in current page
+  const iframe = document.createElement("iframe");
+  iframe.style.cssText =
+    "position:fixed;top:-9999px;left:-9999px;width:860px;height:1400px;border:none;opacity:0;pointer-events:none;";
+  document.body.appendChild(iframe);
+
+  const iDoc = iframe.contentDocument || iframe.contentWindow?.document;
+  if (!iDoc) {
+    document.body.removeChild(iframe);
+    toast.error("Render failed");
+    return;
+  }
+
+  iDoc.open();
+  iDoc.write(html);
+  iDoc.close();
+
+  // Wait for QR image + fonts to load inside iframe
+  await new Promise((r) => setTimeout(r, 2000));
+
+  try {
+    const canvas = await (window as any).html2canvas(iDoc.body, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: "#ffffff",
+      width: 840,
+      windowWidth: 860,
+    });
+    document.body.removeChild(iframe);
+
+    const blob: Blob = await new Promise((r) =>
+      canvas.toBlob((b: Blob) => r(b), "image/png", 0.95),
+    );
+    const fileName = `Order-${order.orderNo}.png`;
+    const file = new File([blob], fileName, { type: "image/png" });
+
+    // Mobile / PWA: Web Share API — opens native share sheet (user picks WhatsApp)
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          files: [file],
+          title: `Order ${order.orderNo} — ${order.customer?.name}`,
+          text: `Order summary from ${shopName}`,
+        });
+        return;
+      } catch (err: any) {
+        if (err.name === "AbortError") return; // user cancelled
+        // else fall through to download
+      }
+    }
+
+    // Desktop: auto-download PNG + open WhatsApp Web
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setTimeout(() => {
+      const msg = `Hi, here is the order summary for Order No: *${order.orderNo}*. The image has been downloaded as *${fileName}* — please attach it to this chat. 🙏`;
+      window.open(
+        `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`,
+        "_blank",
+      );
+    }, 1200);
+
+    toast.success("📥 Image downloaded! Open WhatsApp and attach it.", {
+      duration: 6000,
+    });
+  } catch (err) {
+    if (document.body.contains(iframe)) document.body.removeChild(iframe);
+    console.error("html2canvas error:", err);
+    toast.error("Image generation failed — use Print A4 instead");
+  }
 }
 
 // ── CONSTANTS ──────────────────────────────────────────────────
@@ -363,11 +430,11 @@ function calcFlexItem(item: any, changed: Record<string, string>) {
     wFt = (parseFloat(merged.widthFt) || 0) * INCH_TO_FT;
     hFt = (parseFloat(merged.heightFt) || 0) * INCH_TO_FT;
   }
-  const r = parseFloat(merged.ratePerSqFt) || 0;
-  const q = parseInt(merged.qty || "1") || 1;
-  const dc = parseFloat(merged.designCharge || "0") || 0;
-  const sqFt = parseFloat((wFt * hFt).toFixed(4));
-  const amount = parseFloat((sqFt * r * q + dc).toFixed(2));
+  const r = parseFloat(merged.ratePerSqFt) || 0,
+    q = parseInt(merged.qty || "1") || 1,
+    dc = parseFloat(merged.designCharge || "0") || 0;
+  const sqFt = parseFloat((wFt * hFt).toFixed(4)),
+    amount = parseFloat((sqFt * r * q + dc).toFixed(2));
   return { ...merged, sqFt, amount };
 }
 
@@ -457,33 +524,46 @@ const FlexItemRow = memo(function FlexItemRow({
           marginBottom: 8,
         }}
       >
-        {[
-          [`Width (${isFt ? "ft" : "in"})`, "widthFt", "0"],
-          [`Height (${isFt ? "ft" : "in"})`, "heightFt", "0"],
-        ].map(([label, field, ph]) => (
-          <div key={field as string}>
-            <div
-              style={{
-                fontSize: 9,
-                color: "#8892a4",
-                marginBottom: 3,
-                textTransform: "uppercase",
-                letterSpacing: ".5px",
-              }}
-            >
-              {label as string}
-            </div>
-            <Input
-              type="number"
-              step="0.01"
-              value={item[field as string]}
-              onChange={(e) =>
-                onChange(item.id, field as string, e.target.value)
-              }
-              placeholder={ph as string}
-            />
+        <div>
+          <div
+            style={{
+              fontSize: 9,
+              color: "#8892a4",
+              marginBottom: 3,
+              textTransform: "uppercase",
+              letterSpacing: ".5px",
+            }}
+          >
+            Width ({isFt ? "ft" : "in"})
           </div>
-        ))}
+          <Input
+            type="number"
+            step="0.01"
+            value={item.widthFt}
+            onChange={(e) => onChange(item.id, "widthFt", e.target.value)}
+            placeholder="0"
+          />
+        </div>
+        <div>
+          <div
+            style={{
+              fontSize: 9,
+              color: "#8892a4",
+              marginBottom: 3,
+              textTransform: "uppercase",
+              letterSpacing: ".5px",
+            }}
+          >
+            Height ({isFt ? "ft" : "in"})
+          </div>
+          <Input
+            type="number"
+            step="0.01"
+            value={item.heightFt}
+            onChange={(e) => onChange(item.id, "heightFt", e.target.value)}
+            placeholder="0"
+          />
+        </div>
         <div>
           <div
             style={{
@@ -820,28 +900,24 @@ const PrintItemRow = memo(function PrintItemRow({
           gap: 8,
         }}
       >
-        {[
-          { label: "Size", field: "size", type: "input", ph: "A4, 12x18..." },
-        ].map((f) => (
-          <div key={f.field}>
-            <div
-              style={{
-                fontSize: 9,
-                color: "#8892a4",
-                marginBottom: 3,
-                textTransform: "uppercase",
-                letterSpacing: ".5px",
-              }}
-            >
-              {f.label}
-            </div>
-            <Input
-              value={item[f.field]}
-              onChange={(e) => onChange(item.id, f.field, e.target.value)}
-              placeholder={f.ph}
-            />
+        <div>
+          <div
+            style={{
+              fontSize: 9,
+              color: "#8892a4",
+              marginBottom: 3,
+              textTransform: "uppercase",
+              letterSpacing: ".5px",
+            }}
+          >
+            Size
           </div>
-        ))}
+          <Input
+            value={item.size}
+            onChange={(e) => onChange(item.id, "size", e.target.value)}
+            placeholder="A4, 12x18..."
+          />
+        </div>
         <div>
           <div
             style={{
@@ -953,14 +1029,7 @@ const OrderFormBody = memo(function OrderFormBody({
 }: any) {
   return (
     <>
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          alignItems: "flex-end",
-          marginBottom: 0,
-        }}
-      >
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
         <div style={{ flex: 1 }}>
           <FormGroup label="Customer *">
             <Select
@@ -1014,8 +1083,6 @@ const OrderFormBody = memo(function OrderFormBody({
           />
         </FormGroup>
       </Grid>
-
-      {/* Items */}
       <div style={{ marginBottom: 14 }}>
         <div
           style={{
@@ -1098,13 +1165,11 @@ const OrderFormBody = memo(function OrderFormBody({
           </span>
         </div>
       </div>
-
       <Grid cols={3} gap={12}>
         <FormGroup label="Vendor (if outsourced)">
           <Input
             value={form.vendorName}
             onChange={(e) => onFormChange("vendorName", e.target.value)}
-            placeholder="Vendor name"
           />
         </FormGroup>
         <FormGroup label="Cost Price ₹">
@@ -1113,7 +1178,6 @@ const OrderFormBody = memo(function OrderFormBody({
             step="0.01"
             value={form.costPrice}
             onChange={(e) => onFormChange("costPrice", e.target.value)}
-            placeholder="0.00"
           />
         </FormGroup>
         <FormGroup label="Payment Method">
@@ -1127,16 +1191,13 @@ const OrderFormBody = memo(function OrderFormBody({
           </Select>
         </FormGroup>
       </Grid>
-
       <FormGroup label="Notes / Instructions">
         <Textarea
           value={form.notes}
           onChange={(e) => onFormChange("notes", e.target.value)}
           rows={2}
-          placeholder="Special instructions..."
         />
       </FormGroup>
-
       <Grid cols={3} gap={12}>
         <FormGroup label="Discount ₹">
           <Input
@@ -1164,7 +1225,6 @@ const OrderFormBody = memo(function OrderFormBody({
           />
         </FormGroup>
       </Grid>
-
       <div
         style={{
           background: "#1e2535",
@@ -1186,11 +1246,13 @@ const OrderFormBody = memo(function OrderFormBody({
               label: "Subtotal",
               val: formatCurrency(afterDisc),
               color: "#e2e8f0",
+              big: false,
             },
             {
               label: `GST ${form.gstPct}%`,
               val: formatCurrency(gstAmt),
               color: "#e2e8f0",
+              big: false,
             },
             {
               label: "Total",
@@ -1210,6 +1272,7 @@ const OrderFormBody = memo(function OrderFormBody({
                     label: "Profit",
                     val: formatCurrency(profit),
                     color: profit >= 0 ? "#10b981" : "#ef4444",
+                    big: false,
                   },
                 ]
               : []),
@@ -1235,6 +1298,276 @@ const OrderFormBody = memo(function OrderFormBody({
   );
 });
 
+// ── WHATSAPP ACTION POPUP (image mode) ─────────────────────────
+function WhatsAppPopup({
+  order,
+  onClose,
+  shopName,
+}: {
+  order: any;
+  onClose: () => void;
+  shopName: string;
+}) {
+  const [generating, setGenerating] = useState(false);
+
+  async function handleSendImage() {
+    setGenerating(true);
+    toast.loading("Generating order image...", { id: "wa-gen" });
+    try {
+      await sendOrderImageToWhatsApp(order, order.orderItems || [], shopName);
+      toast.dismiss("wa-gen");
+    } catch (err) {
+      toast.dismiss("wa-gen");
+      toast.error("Failed to generate image");
+    }
+    setGenerating(false);
+    onClose();
+  }
+
+  return (
+    <div>
+      {/* Order summary card */}
+      <div
+        style={{
+          background: "#1e2535",
+          border: "1px solid #2a3348",
+          borderRadius: 10,
+          padding: "14px 16px",
+          marginBottom: 18,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            marginBottom: 14,
+          }}
+        >
+          <div
+            style={{
+              width: 46,
+              height: 46,
+              borderRadius: "50%",
+              background: "linear-gradient(135deg,#10b981,#3b82f6)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 19,
+              fontWeight: 800,
+              color: "#fff",
+            }}
+          >
+            {order.customer?.name?.charAt(0).toUpperCase()}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>
+              {order.customer?.name}
+            </div>
+            <div style={{ fontSize: 12, color: "#8892a4" }}>
+              {order.customer?.mobile} • {order.orderNo}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 11, color: "#8892a4" }}>Order Total</div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#10b981" }}>
+              ₹{(order.totalAmount || 0).toLocaleString("en-IN")}
+            </div>
+          </div>
+        </div>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: 8,
+            textAlign: "center",
+          }}
+        >
+          {[
+            ["Type", order.orderType, "#3b82f6"],
+            [
+              "Advance",
+              "₹" + (order.advancePaid || 0).toLocaleString("en-IN"),
+              "#10b981",
+            ],
+            [
+              "Balance",
+              "₹" + (order.balanceDue || 0).toLocaleString("en-IN"),
+              (order.balanceDue || 0) > 0 ? "#ef4444" : "#10b981",
+            ],
+          ].map(([l, v, c]) => (
+            <div
+              key={String(l)}
+              style={{
+                background: "#252d40",
+                borderRadius: 7,
+                padding: "8px 6px",
+              }}
+            >
+              <div style={{ fontSize: 9, color: "#8892a4", marginBottom: 2 }}>
+                {l}
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: String(c) }}>
+                {v}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* PRIMARY: Send as Image */}
+        <button
+          onClick={handleSendImage}
+          disabled={generating}
+          style={{
+            width: "100%",
+            padding: "15px",
+            background: generating
+              ? "#1e2535"
+              : "linear-gradient(135deg,#25d366,#128c7e)",
+            border: generating ? "1px solid #2a3348" : "none",
+            borderRadius: 10,
+            color: generating ? "#8892a4" : "#fff",
+            fontSize: 15,
+            fontWeight: 800,
+            cursor: generating ? "not-allowed" : "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 10,
+            transition: "all .2s",
+          }}
+        >
+          {generating ? (
+            <>
+              <span
+                style={{ fontSize: 18, animation: "spin 1s linear infinite" }}
+              >
+                ⏳
+              </span>{" "}
+              Generating image...
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 22 }}>💬</span> Send Order Image to
+              WhatsApp{" "}
+              <span style={{ fontSize: 12, fontWeight: 400, opacity: 0.9 }}>
+                ({order.customer?.mobile})
+              </span>
+            </>
+          )}
+        </button>
+
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
+        >
+          {/* Print A4 */}
+          <button
+            onClick={() => {
+              printOrderSummary(order, order.orderItems || [], shopName);
+              onClose();
+            }}
+            style={{
+              padding: "11px",
+              background: "rgba(59,130,246,.15)",
+              border: "1px solid rgba(59,130,246,.4)",
+              borderRadius: 8,
+              color: "#3b82f6",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 7,
+            }}
+          >
+            🖨️ Print A4
+          </button>
+          {/* Both */}
+          <button
+            onClick={async () => {
+              printOrderSummary(order, order.orderItems || [], shopName);
+              setTimeout(async () => {
+                setGenerating(true);
+                toast.loading("Generating image...", { id: "wa-gen2" });
+                try {
+                  await sendOrderImageToWhatsApp(
+                    order,
+                    order.orderItems || [],
+                    shopName,
+                  );
+                } catch {}
+                toast.dismiss("wa-gen2");
+                setGenerating(false);
+              }, 600);
+              onClose();
+            }}
+            style={{
+              padding: "11px",
+              background: "rgba(139,92,246,.15)",
+              border: "1px solid rgba(139,92,246,.4)",
+              borderRadius: 8,
+              color: "#8b5cf6",
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 7,
+            }}
+          >
+            ⚡ Both
+          </button>
+        </div>
+
+        <button
+          onClick={onClose}
+          style={{
+            width: "100%",
+            padding: "8px",
+            background: "transparent",
+            border: "1px solid #2a3348",
+            borderRadius: 8,
+            color: "#8892a4",
+            fontSize: 12,
+            cursor: "pointer",
+          }}
+        >
+          Skip for now
+        </button>
+      </div>
+
+      {/* How it works note */}
+      <div
+        style={{
+          marginTop: 14,
+          padding: "10px 12px",
+          background: "rgba(37,211,102,.05)",
+          border: "1px solid rgba(37,211,102,.15)",
+          borderRadius: 8,
+          fontSize: 11,
+          color: "#8892a4",
+        }}
+      >
+        <div style={{ fontWeight: 700, color: "#25d366", marginBottom: 4 }}>
+          💡 How it works:
+        </div>
+        <div style={{ lineHeight: 1.6 }}>
+          📱 <b>On mobile:</b> The A4 image opens the share sheet — tap WhatsApp
+          and send directly.
+          <br />
+          🖥️ <b>On desktop:</b> The image downloads automatically, then WhatsApp
+          Web opens — attach the downloaded file and send.
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── MAIN PAGE ──────────────────────────────────────────────────
 export default function OrdersPage() {
   const { data: session } = useSession();
@@ -1259,7 +1592,8 @@ export default function OrdersPage() {
   const [search, setSearch] = useState("");
   const [form, setForm] = useState(defaultForm);
   const [items, setItems] = useState<any[]>([defaultFlexItem()]);
-  const [createdOrder, setCreatedOrder] = useState<any>(null); // WhatsApp/print popup
+  const [createdOrder, setCreatedOrder] = useState<any>(null);
+  const [waOrder, setWaOrder] = useState<any>(null); // for inline WA popup from table
   const [custForm, setCustForm] = useState({
     name: "",
     mobile: "",
@@ -1272,7 +1606,6 @@ export default function OrdersPage() {
     (k: string, v: string) => setForm((p) => ({ ...p, [k]: v })),
     [],
   );
-
   const handleUpdateItem = useCallback((id: any, key: string, val: string) => {
     setItems((prev) =>
       prev.map((item) => {
@@ -1288,9 +1621,8 @@ export default function OrdersPage() {
             "description",
             "designCharge",
           ].includes(key)
-        ) {
+        )
           return calcFlexItem(item, { [key]: val });
-        }
         const updated = { ...item, [key]: val };
         if (key === "sellingPrice" || key === "qty" || key === "designCharge") {
           const sp =
@@ -1307,14 +1639,12 @@ export default function OrdersPage() {
       }),
     );
   }, []);
-
   const handleAddItem = useCallback(() => {
     setItems((prev) => {
       const isFlex = "widthFt" in (prev[0] || {});
       return [...prev, isFlex ? defaultFlexItem() : defaultPrintItem()];
     });
   }, []);
-
   const handleRemoveItem = useCallback((id: any) => {
     setItems((prev) => {
       if (prev.length === 1) {
@@ -1326,10 +1656,13 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => {
-    setItems([
-      form.orderType === "FLEX" ? defaultFlexItem() : defaultPrintItem(),
-    ]);
-  }, [form.orderType]);
+    // Only reset items when NOT in edit mode (editing loads existing items)
+    if (!editOrder) {
+      setItems([
+        form.orderType === "FLEX" ? defaultFlexItem() : defaultPrintItem(),
+      ]);
+    }
+  }, [form.orderType, editOrder]);
 
   const subTotalItems = items.reduce((s, i) => s + (i.amount || 0), 0);
   const disc = parseFloat(form.discount || "0");
@@ -1346,8 +1679,7 @@ export default function OrdersPage() {
     if (filterStatus) params.set("status", filterStatus);
     if (filterType) params.set("orderType", filterType);
     if (search) params.set("search", search);
-    const res = await fetch(`/api/orders?${params}`);
-    const data = await res.json();
+    const data = await fetch(`/api/orders?${params}`).then((r) => r.json());
     setOrders(Array.isArray(data) ? data : []);
     setLoading(false);
   }, [filterStatus, filterType, search]);
@@ -1364,8 +1696,8 @@ export default function OrdersPage() {
   function resetForm() {
     setForm(defaultForm);
     setItems([defaultFlexItem()]);
+    setEditOrder(null);
   }
-
   function buildPayload() {
     const normItems = items.map((i) => ({ ...i, sqFt: i.sqFt ?? 0 }));
     return {
@@ -1381,7 +1713,21 @@ export default function OrdersPage() {
     };
   }
 
-  // ── CREATE ─────────────────────────────────────────────────
+  function parseOrderItems(o: any): any[] {
+    try {
+      return JSON.parse(o.orderItemsJson || "[]");
+    } catch {
+      return [];
+    }
+  }
+  function enrichOrder(o: any) {
+    return {
+      ...o,
+      orderItems: parseOrderItems(o),
+      customer: customers.find((c) => c.id === o.customerId) || o.customer,
+    };
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!form.customerId) {
@@ -1397,14 +1743,16 @@ export default function OrdersPage() {
       });
       if (!res.ok) throw new Error();
       const order = await res.json();
-      // Attach full customer + items for WhatsApp/print
-      const customer =
-        customers.find((c) => c.id === form.customerId) || order.customer;
-      const orderFull = { ...order, orderItems: [...items], customer };
+      const full = {
+        ...order,
+        orderItems: [...items],
+        customer:
+          customers.find((c) => c.id === form.customerId) || order.customer,
+      };
       setOrders((p) => [order, ...p]);
       setShowModal(false);
       resetForm();
-      setCreatedOrder(orderFull); // ← opens WhatsApp/print popup
+      setCreatedOrder(full);
       toast.success(`✅ Order ${order.orderNo} created!`);
     } catch {
       toast.error("Failed to create order");
@@ -1412,16 +1760,10 @@ export default function OrdersPage() {
     setSaving(false);
   }
 
-  // ── EDIT ───────────────────────────────────────────────────
   function openEdit(o: any) {
-    const parsed = (() => {
-      try {
-        return JSON.parse(o.orderItemsJson || "[]");
-      } catch {
-        return [];
-      }
-    })();
+    const parsed = parseOrderItems(o);
     setEditOrder(o);
+    // Set form first (this may trigger orderType useEffect, but guard is in place)
     setForm({
       customerId: o.customerId,
       orderType: o.orderType,
@@ -1435,11 +1777,22 @@ export default function OrdersPage() {
       advancePaid: String(o.advancePaid ?? 0),
       paymentMethod: o.paymentMethod || "Cash",
     });
-    setItems(
-      parsed.length
-        ? parsed
-        : [o.orderType === "FLEX" ? defaultFlexItem() : defaultPrintItem()],
-    );
+    // Load items — for PRINT orders, ensure sellingPrice is set from amount/qty if missing
+    const loadedItems = parsed.length
+      ? parsed.map((item: any) => ({
+          ...item,
+          // For print items: if sellingPrice missing but amount and qty exist, calculate it
+          sellingPrice:
+            item.sellingPrice ||
+            (item.amount && item.qty
+              ? String((item.amount / parseInt(item.qty || "1")).toFixed(2))
+              : item.sellingPrice || ""),
+          designCharge: item.designCharge || "0",
+          designStatus: item.designStatus || "PENDING",
+          printStatus: item.printStatus || "PENDING",
+        }))
+      : [o.orderType === "FLEX" ? defaultFlexItem() : defaultPrintItem()];
+    setItems(loadedItems);
   }
 
   async function handleEdit(e: React.FormEvent) {
@@ -1468,7 +1821,6 @@ export default function OrdersPage() {
     setSaving(false);
   }
 
-  // ── DELETE ─────────────────────────────────────────────────
   async function handleDelete() {
     if (!deleteTarget) return;
     setDeleting(true);
@@ -1550,7 +1902,6 @@ export default function OrdersPage() {
     ).length,
     ready: orders.filter((o) => o.status === "READY").length,
   };
-
   const formProps = {
     form,
     items,
@@ -1578,7 +1929,6 @@ export default function OrdersPage() {
       }
     >
       <div className="animate-in">
-        {/* Stats */}
         <div
           style={{
             display: "grid",
@@ -1608,7 +1958,6 @@ export default function OrdersPage() {
           />
         </div>
 
-        {/* Filters */}
         <div
           style={{
             display: "flex",
@@ -1654,7 +2003,6 @@ export default function OrdersPage() {
           )}
         </div>
 
-        {/* Orders Table */}
         <Card>
           <CardHeader>
             <CardTitle>All Orders ({orders.length})</CardTitle>
@@ -1678,7 +2026,7 @@ export default function OrdersPage() {
                     <th>Total</th>
                     <th>Advance</th>
                     <th>Balance</th>
-                    <th>Due Date</th>
+                    <th>Due</th>
                     <th>Priority</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -1691,13 +2039,7 @@ export default function OrdersPage() {
                       o.dueDate &&
                       new Date(o.dueDate) < new Date() &&
                       !["DELIVERED", "CANCELLED"].includes(o.status);
-                    const pItems: any[] = (() => {
-                      try {
-                        return JSON.parse(o.orderItemsJson || "[]");
-                      } catch {
-                        return [];
-                      }
-                    })();
+                    const pItems = parseOrderItems(o);
                     const allDesign =
                       pItems.length > 0 &&
                       pItems.every((i: any) => i.designStatus === "DONE");
@@ -1817,50 +2159,17 @@ export default function OrdersPage() {
                           </Badge>
                         </td>
                         <td>
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 3,
-                              flexWrap: "nowrap",
-                            }}
-                          >
+                          <div style={{ display: "flex", gap: 3 }}>
                             <Button
                               size="sm"
-                              onClick={() =>
-                                setViewOrder({
-                                  ...o,
-                                  orderItems: (() => {
-                                    try {
-                                      return JSON.parse(
-                                        o.orderItemsJson || "[]",
-                                      );
-                                    } catch {
-                                      return [];
-                                    }
-                                  })(),
-                                })
-                              }
+                              onClick={() => setViewOrder(enrichOrder(o))}
                             >
                               👁
                             </Button>
-                            {/* WhatsApp quick button */}
+                            {/* WhatsApp image button */}
                             <button
-                              onClick={() =>
-                                sendWhatsApp(
-                                  o,
-                                  (() => {
-                                    try {
-                                      return JSON.parse(
-                                        o.orderItemsJson || "[]",
-                                      );
-                                    } catch {
-                                      return [];
-                                    }
-                                  })(),
-                                  shopName,
-                                )
-                              }
-                              title="Send WhatsApp"
+                              onClick={() => setWaOrder(enrichOrder(o))}
+                              title="Send A4 image to WhatsApp"
                               style={{
                                 padding: "4px 7px",
                                 background: "rgba(37,211,102,.12)",
@@ -1874,22 +2183,10 @@ export default function OrdersPage() {
                             >
                               💬
                             </button>
-                            {/* Print A4 quick button */}
+                            {/* Print A4 button */}
                             <button
                               onClick={() =>
-                                printOrderSummary(
-                                  o,
-                                  (() => {
-                                    try {
-                                      return JSON.parse(
-                                        o.orderItemsJson || "[]",
-                                      );
-                                    } catch {
-                                      return [];
-                                    }
-                                  })(),
-                                  shopName,
-                                )
+                                printOrderSummary(o, pItems, shopName)
                               }
                               title="Print A4"
                               style={{
@@ -1942,7 +2239,7 @@ export default function OrdersPage() {
         </Card>
       </div>
 
-      {/* ── CREATE MODAL ── */}
+      {/* CREATE */}
       <Modal
         open={showModal}
         onClose={() => {
@@ -1974,7 +2271,7 @@ export default function OrdersPage() {
         </form>
       </Modal>
 
-      {/* ── EDIT MODAL ── */}
+      {/* EDIT */}
       <Modal
         open={!!editOrder}
         onClose={() => {
@@ -2004,7 +2301,7 @@ export default function OrdersPage() {
         </form>
       </Modal>
 
-      {/* ── VIEW MODAL ── */}
+      {/* VIEW */}
       <Modal
         open={!!viewOrder}
         onClose={() => setViewOrder(null)}
@@ -2042,9 +2339,7 @@ export default function OrdersPage() {
                 🖨️ Print A4
               </button>
               <button
-                onClick={() =>
-                  sendWhatsApp(viewOrder, viewOrder.orderItems || [], shopName)
-                }
+                onClick={() => setWaOrder({ ...viewOrder })}
                 style={{
                   padding: "7px 14px",
                   background: "rgba(37,211,102,.15)",
@@ -2056,7 +2351,7 @@ export default function OrdersPage() {
                   cursor: "pointer",
                 }}
               >
-                💬 Send WhatsApp
+                💬 Send WhatsApp Image
               </button>
             </div>
             <Button onClick={() => setViewOrder(null)}>Close</Button>
@@ -2107,7 +2402,6 @@ export default function OrdersPage() {
                     value={formatCurrency(viewOrder.discount)}
                   />
                 </Grid>
-
                 {viewOrder.notes && (
                   <div
                     style={{
@@ -2122,8 +2416,6 @@ export default function OrdersPage() {
                     📝 {viewOrder.notes}
                   </div>
                 )}
-
-                {/* Task Tracker */}
                 {vItems.length > 0 && (
                   <div style={{ marginBottom: 16 }}>
                     <div
@@ -2159,17 +2451,6 @@ export default function OrdersPage() {
                           {item.description ||
                             item.jobName ||
                             `${item.widthFt ?? item.width}×${item.heightFt ?? item.height} ${item.unit || "ft"}`}
-                          <span
-                            style={{
-                              marginLeft: 8,
-                              fontSize: 10,
-                              color: "#8892a4",
-                              fontWeight: 400,
-                            }}
-                          >
-                            {item.sqFt?.toFixed(2)} sqft —{" "}
-                            {formatCurrency(item.amount)}
-                          </span>
                         </div>
                         <div
                           style={{
@@ -2262,8 +2543,6 @@ export default function OrdersPage() {
                     </div>
                   </div>
                 )}
-
-                {/* Status update */}
                 <div
                   style={{
                     marginBottom: 8,
@@ -2304,268 +2583,41 @@ export default function OrdersPage() {
           })()}
       </Modal>
 
-      {/* ── ORDER CREATED — WHATSAPP/PRINT POPUP ── */}
+      {/* CREATED ORDER — WA/PRINT POPUP */}
       <Modal
         open={!!createdOrder}
         onClose={() => setCreatedOrder(null)}
         title={"✅ Order " + (createdOrder?.orderNo || "") + " Created!"}
-        width={460}
+        width={480}
         footer={<Button onClick={() => setCreatedOrder(null)}>Done</Button>}
       >
         {createdOrder && (
-          <div>
-            {/* Summary card */}
-            <div
-              style={{
-                background: "#1e2535",
-                border: "1px solid #2a3348",
-                borderRadius: 10,
-                padding: "14px 16px",
-                marginBottom: 18,
-              }}
-            >
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 12,
-                  marginBottom: 14,
-                }}
-              >
-                <div
-                  style={{
-                    width: 46,
-                    height: 46,
-                    borderRadius: "50%",
-                    background: "linear-gradient(135deg,#10b981,#3b82f6)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 19,
-                    fontWeight: 800,
-                    color: "#fff",
-                  }}
-                >
-                  {createdOrder.customer?.name?.charAt(0).toUpperCase()}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 700, fontSize: 15 }}>
-                    {createdOrder.customer?.name}
-                  </div>
-                  <div style={{ fontSize: 12, color: "#8892a4" }}>
-                    {createdOrder.customer?.mobile} • {createdOrder.orderNo}
-                  </div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 11, color: "#8892a4" }}>
-                    Order Total
-                  </div>
-                  <div
-                    style={{ fontSize: 22, fontWeight: 900, color: "#10b981" }}
-                  >
-                    ₹{(createdOrder.totalAmount || 0).toLocaleString("en-IN")}
-                  </div>
-                </div>
-              </div>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
-                  gap: 8,
-                  textAlign: "center",
-                }}
-              >
-                {[
-                  ["Type", createdOrder.orderType, "#3b82f6"],
-                  [
-                    "Advance",
-                    "₹" +
-                      (createdOrder.advancePaid || 0).toLocaleString("en-IN"),
-                    "#10b981",
-                  ],
-                  [
-                    "Balance",
-                    "₹" +
-                      (createdOrder.balanceDue || 0).toLocaleString("en-IN"),
-                    (createdOrder.balanceDue || 0) > 0 ? "#ef4444" : "#10b981",
-                  ],
-                ].map(([l, v, c]) => (
-                  <div
-                    key={String(l)}
-                    style={{
-                      background: "#252d40",
-                      borderRadius: 7,
-                      padding: "8px 6px",
-                    }}
-                  >
-                    <div
-                      style={{ fontSize: 9, color: "#8892a4", marginBottom: 2 }}
-                    >
-                      {l}
-                    </div>
-                    <div
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 700,
-                        color: String(c),
-                      }}
-                    >
-                      {v}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Action buttons */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* WhatsApp — main CTA */}
-              <button
-                onClick={() => {
-                  sendWhatsApp(
-                    createdOrder,
-                    createdOrder.orderItems || [],
-                    shopName,
-                  );
-                  setCreatedOrder(null);
-                }}
-                style={{
-                  width: "100%",
-                  padding: "14px",
-                  background: "linear-gradient(135deg,#25d366,#128c7e)",
-                  border: "none",
-                  borderRadius: 10,
-                  color: "#fff",
-                  fontSize: 15,
-                  fontWeight: 800,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 10,
-                }}
-              >
-                <span style={{ fontSize: 22 }}>💬</span>
-                Send to WhatsApp
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 400,
-                    opacity: 0.9,
-                    marginLeft: 4,
-                  }}
-                >
-                  ({createdOrder.customer?.mobile})
-                </span>
-              </button>
-
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                }}
-              >
-                <button
-                  onClick={() => {
-                    printOrderSummary(
-                      createdOrder,
-                      createdOrder.orderItems || [],
-                      shopName,
-                    );
-                    setCreatedOrder(null);
-                  }}
-                  style={{
-                    padding: "11px",
-                    background: "rgba(59,130,246,.15)",
-                    border: "1px solid rgba(59,130,246,.4)",
-                    borderRadius: 8,
-                    color: "#3b82f6",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 7,
-                  }}
-                >
-                  🖨️ Print A4
-                </button>
-                <button
-                  onClick={() => {
-                    sendWhatsApp(
-                      createdOrder,
-                      createdOrder.orderItems || [],
-                      shopName,
-                    );
-                    setTimeout(
-                      () =>
-                        printOrderSummary(
-                          createdOrder,
-                          createdOrder.orderItems || [],
-                          shopName,
-                        ),
-                      600,
-                    );
-                    setCreatedOrder(null);
-                  }}
-                  style={{
-                    padding: "11px",
-                    background: "rgba(139,92,246,.15)",
-                    border: "1px solid rgba(139,92,246,.4)",
-                    borderRadius: 8,
-                    color: "#8b5cf6",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 7,
-                  }}
-                >
-                  ⚡ Both
-                </button>
-              </div>
-
-              <button
-                onClick={() => setCreatedOrder(null)}
-                style={{
-                  width: "100%",
-                  padding: "8px",
-                  background: "transparent",
-                  border: "1px solid #2a3348",
-                  borderRadius: 8,
-                  color: "#8892a4",
-                  fontSize: 12,
-                  cursor: "pointer",
-                }}
-              >
-                Skip for now
-              </button>
-            </div>
-
-            <div
-              style={{
-                marginTop: 12,
-                padding: "8px 12px",
-                background: "rgba(37,211,102,.06)",
-                border: "1px solid rgba(37,211,102,.15)",
-                borderRadius: 8,
-                fontSize: 11,
-                color: "#8892a4",
-                textAlign: "center",
-              }}
-            >
-              💡 Opens WhatsApp on your device — just tap Send to deliver the
-              order summary!
-            </div>
-          </div>
+          <WhatsAppPopup
+            order={createdOrder}
+            onClose={() => setCreatedOrder(null)}
+            shopName={shopName}
+          />
         )}
       </Modal>
 
-      {/* ── DELETE MODAL ── */}
+      {/* WA IMAGE SEND — from table row or view modal */}
+      <Modal
+        open={!!waOrder}
+        onClose={() => setWaOrder(null)}
+        title={"💬 Send Order Image — " + (waOrder?.orderNo || "")}
+        width={480}
+        footer={<Button onClick={() => setWaOrder(null)}>Cancel</Button>}
+      >
+        {waOrder && (
+          <WhatsAppPopup
+            order={waOrder}
+            onClose={() => setWaOrder(null)}
+            shopName={shopName}
+          />
+        )}
+      </Modal>
+
+      {/* DELETE */}
       <Modal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
@@ -2616,23 +2668,11 @@ export default function OrdersPage() {
                 {formatCurrency(deleteTarget.totalAmount)}
               </strong>
             </div>
-            <div
-              style={{
-                marginTop: 12,
-                fontSize: 12,
-                color: "#ef4444",
-                background: "rgba(239,68,68,.08)",
-                borderRadius: 8,
-                padding: "8px 14px",
-              }}
-            >
-              This cannot be undone.
-            </div>
           </div>
         )}
       </Modal>
 
-      {/* ── ADD CUSTOMER MODAL ── */}
+      {/* ADD CUSTOMER */}
       <Modal
         open={showCustModal}
         onClose={() => setShowCustModal(false)}

@@ -12,28 +12,30 @@ export async function GET(req: NextRequest) {
   const mode       = searchParams.get('mode')
   const search     = searchParams.get('search')
 
-  const where: any = {}
+  let where: any = {}
   if (customerId) where.customerId = customerId
-  if (mode)       where.mode       = mode
-  if (search) {
-    where.OR = [
-      { receiptNo: { contains: search, mode: 'insensitive' } },
-      { reference: { contains: search, mode: 'insensitive' } },
-      { customer:  { name:   { contains: search, mode: 'insensitive' } } },
-      { customer:  { mobile: { contains: search } } },
-    ]
-  }
+  if (mode)       where.mode = mode
 
   const payments = await prisma.payment.findMany({
     where,
     include: {
       customer: true,
-      invoice:  { select: { invNo: true } },
-      order:    { select: { orderNo: true, totalAmount: true, balanceDue: true, advancePaid: true } },
+      invoice:  true,
+      order: { select: { id:true, orderNo:true, totalAmount:true, advancePaid:true, balanceDue:true } },
     },
-    orderBy: { createdAt: 'desc' },
+    orderBy: { date: 'desc' },
     take: 500,
   })
+
+  if (search) {
+    const s = search.toLowerCase()
+    return NextResponse.json(payments.filter((p: any) => {
+      return String(p.receiptNo||'').toLowerCase().includes(s) ||
+             String(p.customer?.name||'').toLowerCase().includes(s) ||
+             String(p.customer?.mobile||'').includes(s) ||
+             String(p.reference||'').toLowerCase().includes(s)
+    }))
+  }
 
   return NextResponse.json(payments)
 }
@@ -43,77 +45,125 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { customerId, orderId, invoiceId, amount, mode, reference, notes, date } = body
+  const { customerId, orderId, invoiceId, amount, mode, reference, notes, date, applyCredit } = body
 
-  if (!customerId) return NextResponse.json({ error: 'Customer is required' }, { status: 400 })
-  if (!amount || amount <= 0) return NextResponse.json({ error: 'Valid amount required' }, { status: 400 })
+  if (!customerId) return NextResponse.json({ error: 'Customer required' }, { status: 400 })
 
-  // ── Generate receipt number ───────────────────────────────────────────────
-  const year = new Date().getFullYear()
-  const last = await prisma.payment.findFirst({
-    where: { receiptNo: { startsWith: `RCP-${year}-` } },
-    orderBy: { receiptNo: 'desc' },
-    select: { receiptNo: true },
-  })
-  const lastNum  = last ? parseInt(last.receiptNo.split('-')[2]) : 0
-  const receiptNo = `RCP-${year}-${String(lastNum + 1).padStart(4, '0')}`
+  // ── CREDIT APPLICATION MODE ────────────────────────────────
+  if (applyCredit && applyCredit.orderId && applyCredit.amount > 0) {
+    const creditAmt = parseFloat(String(applyCredit.amount))
 
-  try {
-    // ── Create payment ────────────────────────────────────────────────────
-    const payment = await prisma.payment.create({
+    const [customer, targetOrder] = await Promise.all([
+      prisma.customer.findUnique({ where: { id: customerId } }),
+      prisma.order.findUnique({ where: { id: applyCredit.orderId } }),
+    ])
+
+    if (!customer)    return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
+    if (!targetOrder) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+
+    const available = customer.balance || 0
+    if (creditAmt > available + 0.01) {
+      return NextResponse.json({ error: `Insufficient credit. Available: ₹${available.toFixed(2)}` }, { status: 400 })
+    }
+
+    const applyAmt   = Math.min(creditAmt, targetOrder.balanceDue)
+    const newAdvance = targetOrder.advancePaid + applyAmt
+    const newBalance = Math.max(0, targetOrder.totalAmount - newAdvance)
+
+    await prisma.order.update({
+      where: { id: applyCredit.orderId },
+      data:  { advancePaid: newAdvance, balanceDue: newBalance },
+    })
+
+    await prisma.customer.update({
+      where: { id: customerId },
+      data:  { balance: { decrement: applyAmt } },
+    })
+
+    const count     = await prisma.payment.count()
+    const receiptNo = `CRED-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`
+
+    const creditPayment = await prisma.payment.create({
       data: {
         receiptNo,
         customerId,
-        amount:    parseFloat(String(amount)),
-        mode:      mode || 'Cash',
-        reference: reference || null,
-        notes:     notes    || null,
-        date:      date ? new Date(date) : new Date(),
-        ...(orderId   ? { orderId }   : {}),
-        ...(invoiceId ? { invoiceId } : {}),
+        orderId:  applyCredit.orderId,
+        amount:   applyAmt,
+        mode:     'CREDIT',
+        notes:    `Credit balance applied to ${targetOrder.orderNo}`,
+        date:     new Date(),
+        type:     'CREDIT_APPLIED',
       },
-      include: {
-        customer: true,
-        order:    { select: { orderNo: true, totalAmount: true, balanceDue: true, advancePaid: true } },
-        invoice:  { select: { invNo: true } },
-      },
+      include: { customer: true, order: true },
     })
 
-    // ── Update order balance if linked ────────────────────────────────────
-    if (orderId) {
-      const order = await prisma.order.findUnique({
-        where: { id: orderId },
-        select: { advancePaid: true, balanceDue: true, totalAmount: true },
-      })
-      if (order) {
-        const newAdvance = (order.advancePaid || 0) + parseFloat(String(amount))
-        const newBalance = Math.max(0, (order.balanceDue || 0) - parseFloat(String(amount)))
-        await prisma.order.update({
-          where: { id: orderId },
-          data:  { advancePaid: newAdvance, balanceDue: newBalance },
-        })
-      }
-    }
-
-    // ── Update invoice balance if linked ──────────────────────────────────
-    if (invoiceId) {
-      const invoice = await prisma.invoice.findUnique({
-        where: { id: invoiceId },
-        select: { paidAmount: true, totalAmount: true },
-      })
-      if (invoice) {
-        const newPaid = (invoice.paidAmount || 0) + parseFloat(String(amount))
-        const newStatus = newPaid >= invoice.totalAmount ? 'PAID' : newPaid > 0 ? 'PARTIAL' : 'UNPAID'
-        await prisma.invoice.update({
-          where: { id: invoiceId },
-          data:  { paidAmount: newPaid, status: newStatus },
-        })
-      }
-    }
-
-    return NextResponse.json(payment, { status: 201 })
-  } catch (err: any) {
-    console.error('Payment create error:', err)
-    return NextResponse.json({ error: err.message || 'Failed to create payment' }, { status: 500 })
+    return NextResponse.json({ ...creditPayment, creditApplied: applyAmt }, { status: 201 })
   }
+
+  // ── NORMAL PAYMENT ─────────────────────────────────────────
+  const parsedAmt = parseFloat(String(amount))
+  if (isNaN(parsedAmt) || parsedAmt <= 0)
+    return NextResponse.json({ error: 'Amount must be greater than 0' }, { status: 400 })
+
+  const count     = await prisma.payment.count()
+  const receiptNo = `REC-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`
+  const payDate   = date ? new Date(date) : new Date()
+
+  const payment = await prisma.payment.create({
+    data: {
+      receiptNo,
+      customerId,
+      orderId:   orderId   || null,
+      invoiceId: invoiceId || null,
+      amount:    parsedAmt,
+      mode:      mode      || 'Cash',
+      reference: reference || null,
+      notes:     notes     || null,
+      date:      payDate,
+      type:      orderId ? 'PAYMENT' : 'ADVANCE',
+    },
+    include: { customer: true, order: true },
+  })
+
+  let creditAdded = 0
+
+  if (orderId) {
+    const order = await prisma.order.findUnique({ where: { id: orderId } })
+    if (order) {
+      const newAdvance = order.advancePaid + parsedAmt
+      const newBalance = Math.max(0, order.totalAmount - newAdvance)
+      await prisma.order.update({
+        where: { id: orderId },
+        data:  { advancePaid: newAdvance, balanceDue: newBalance },
+      })
+      // Overpaid → store excess as customer credit
+      if (newAdvance > order.totalAmount) {
+        creditAdded = parseFloat((newAdvance - order.totalAmount).toFixed(2))
+        await prisma.customer.update({
+          where: { id: customerId },
+          data:  { balance: { increment: creditAdded } },
+        })
+      }
+    }
+  } else {
+    // No order → entire amount stored as customer credit balance
+    creditAdded = parsedAmt
+    await prisma.customer.update({
+      where: { id: customerId },
+      data:  { balance: { increment: parsedAmt } },
+    })
+  }
+
+  if (invoiceId) {
+    const inv = await prisma.invoice.findUnique({ where: { id: invoiceId } })
+    if (inv) {
+      const paid = inv.paidAmount + parsedAmt
+      await prisma.invoice.update({
+        where: { id: invoiceId },
+        data:  { paidAmount: paid, status: paid >= inv.totalAmount ? 'PAID' : 'PARTIAL' },
+      })
+    }
+  }
+
+  return NextResponse.json({ ...payment, creditAdded }, { status: 201 })
 }
