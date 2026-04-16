@@ -27,15 +27,25 @@ export async function GET(req: NextRequest) {
     take: 500,
   })
 
-  if (search) {
-    const s = search.toLowerCase()
-    return NextResponse.json(payments.filter((p: any) => {
-      return String(p.receiptNo||'').toLowerCase().includes(s) ||
-             String(p.customer?.name||'').toLowerCase().includes(s) ||
-             String(p.customer?.mobile||'').includes(s) ||
-             String(p.reference||'').toLowerCase().includes(s)
-    }))
-  }
+if (search) {
+  const s = search.toLowerCase()
+
+  return NextResponse.json(
+    payments.filter((p: any) => {
+      const receipt = String(p.receiptNo || '').toLowerCase()
+      const name    = String(p.customer?.name || '').toLowerCase()
+      const mobile  = String(p.customer?.mobile || '')
+      const ref     = String(p.reference || '').toLowerCase()
+
+      return (
+        receipt.includes(s) ||
+        name.includes(s) ||
+        mobile.includes(s) ||
+        ref.includes(s)
+      )
+    })
+  )
+}
 
   return NextResponse.json(payments)
 }
@@ -49,37 +59,40 @@ export async function POST(req: NextRequest) {
 
   if (!customerId) return NextResponse.json({ error: 'Customer required' }, { status: 400 })
 
-  // ── CREDIT APPLICATION MODE ────────────────────────────────
+  // ── CREDIT APPLICATION MODE ─────────────────────────────────
+  // applyCredit = { orderId, amount } — apply stored credit balance to an order
   if (applyCredit && applyCredit.orderId && applyCredit.amount > 0) {
     const creditAmt = parseFloat(String(applyCredit.amount))
 
-    const [customer, targetOrder] = await Promise.all([
-      prisma.customer.findUnique({ where: { id: customerId } }),
-      prisma.order.findUnique({ where: { id: applyCredit.orderId } }),
-    ])
-
-    if (!customer)    return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
-    if (!targetOrder) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+    const customer = await prisma.customer.findUnique({ where: { id: customerId } })
+    if (!customer) return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
 
     const available = customer.balance || 0
     if (creditAmt > available + 0.01) {
       return NextResponse.json({ error: `Insufficient credit. Available: ₹${available.toFixed(2)}` }, { status: 400 })
     }
 
+    const targetOrder = await prisma.order.findUnique({ where: { id: applyCredit.orderId } })
+    if (!targetOrder) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+
+    // Apply only up to balance due
     const applyAmt   = Math.min(creditAmt, targetOrder.balanceDue)
     const newAdvance = targetOrder.advancePaid + applyAmt
     const newBalance = Math.max(0, targetOrder.totalAmount - newAdvance)
 
+    // Update order
     await prisma.order.update({
       where: { id: applyCredit.orderId },
       data:  { advancePaid: newAdvance, balanceDue: newBalance },
     })
 
+    // Deduct from customer credit balance
     await prisma.customer.update({
       where: { id: customerId },
       data:  { balance: { decrement: applyAmt } },
     })
 
+    // Create a credit-application receipt
     const count     = await prisma.payment.count()
     const receiptNo = `CRED-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`
 
@@ -100,7 +113,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...creditPayment, creditApplied: applyAmt }, { status: 201 })
   }
 
-  // ── NORMAL PAYMENT ─────────────────────────────────────────
+  // ── NORMAL PAYMENT MODE ─────────────────────────────────────
   const parsedAmt = parseFloat(String(amount))
   if (isNaN(parsedAmt) || parsedAmt <= 0)
     return NextResponse.json({ error: 'Amount must be greater than 0' }, { status: 400 })
@@ -127,16 +140,19 @@ export async function POST(req: NextRequest) {
 
   let creditAdded = 0
 
+  // ── Update linked order ────────────────────────────────────
   if (orderId) {
     const order = await prisma.order.findUnique({ where: { id: orderId } })
     if (order) {
       const newAdvance = order.advancePaid + parsedAmt
       const newBalance = Math.max(0, order.totalAmount - newAdvance)
+
       await prisma.order.update({
         where: { id: orderId },
         data:  { advancePaid: newAdvance, balanceDue: newBalance },
       })
-      // Overpaid → store excess as customer credit
+
+      // If overpaid → store excess as customer credit
       if (newAdvance > order.totalAmount) {
         creditAdded = parseFloat((newAdvance - order.totalAmount).toFixed(2))
         await prisma.customer.update({
@@ -146,7 +162,7 @@ export async function POST(req: NextRequest) {
       }
     }
   } else {
-    // No order → entire amount stored as customer credit balance
+    // No order linked → entire amount is advance/credit for customer
     creditAdded = parsedAmt
     await prisma.customer.update({
       where: { id: customerId },
@@ -154,6 +170,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // ── Update linked invoice ──────────────────────────────────
   if (invoiceId) {
     const inv = await prisma.invoice.findUnique({ where: { id: invoiceId } })
     if (inv) {

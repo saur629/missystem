@@ -12,10 +12,10 @@ export async function GET(req: NextRequest) {
   const statuses   = searchParams.get('statuses')
   const orderType  = searchParams.get('orderType')
   const search     = searchParams.get('search')
-  const customerId = searchParams.get('customerId') // ← NEW: for ledger / payment page
+  const customerId = searchParams.get('customerId')
 
   const where: any = {}
-  if (customerId) where.customerId = customerId     // ← NEW
+  if (customerId) where.customerId = customerId
   if (status)     where.status    = status
   if (statuses)   where.status    = { in: statuses.split(',') }
   if (orderType)  where.orderType = orderType
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   const {
     customerId, orderType, priority, dueDate, notes,
     items = [],
-    vendorName, costPrice, paymentMethod,          // ← paymentMethod included
+    vendorName, costPrice, paymentMethod,
     discount = 0, gstPct = 18, advancePaid = 0,
     subTotal = 0, gstAmount = 0, totalAmount = 0, balanceDue = 0,
   } = body
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     dueDate:        dueDate ? new Date(dueDate) : null,
     notes:          notes         || null,
     vendorName:     vendorName    || null,
-    paymentMethod:  paymentMethod || null,          // ← saved correctly
+    paymentMethod:  paymentMethod || null,
     costPrice:      costPrice  ? parseFloat(String(costPrice))  : null,
     discount:       parseFloat(String(discount)),
     gstPct:         parseFloat(String(gstPct)),
@@ -95,7 +95,6 @@ export async function POST(req: NextRequest) {
     operatorId:     sessionUser?.id || null,
   }
 
-  // First-item fields for panel display
   if (orderType === 'FLEX') {
     data.width       = fi.widthFt  ? parseFloat(String(fi.widthFt))  : (fi.width  ? parseFloat(String(fi.width))  : null)
     data.height      = fi.heightFt ? parseFloat(String(fi.heightFt)) : (fi.height ? parseFloat(String(fi.height)) : null)
@@ -118,9 +117,47 @@ export async function POST(req: NextRequest) {
       data,
       include: { customer: true },
     })
+
     await prisma.statusLog.create({
       data: { orderId: order.id, status: 'PENDING', notes: 'Order created', userId: sessionUser?.id || null },
     })
+
+    // ── AUTO-CREATE PAYMENT RECORD if advance was paid ──────────────────────
+    const advAmt = parseFloat(String(advancePaid))
+    if (advAmt > 0) {
+      // Generate receipt number
+      const lastPayment = await prisma.payment.findFirst({
+        where:   { receiptNo: { startsWith: `REC-${year}-` } },
+        orderBy: { receiptNo: 'desc' },
+        select:  { receiptNo: true },
+      })
+      const lastPayNum = lastPayment ? parseInt(lastPayment.receiptNo.split('-')[2]) : 0
+      const receiptNo  = `REC-${year}-${String(lastPayNum + 1).padStart(5, '0')}`
+
+      await prisma.payment.create({
+        data: {
+          receiptNo,
+          customerId,
+          orderId:   order.id,
+          amount:    advAmt,
+          mode:      paymentMethod || 'Cash',
+          notes:     `Advance payment for ${orderNo}`,
+          date:      new Date(),
+          type:      'PAYMENT',
+        },
+      })
+
+      // If advance > total, store excess as customer credit balance
+      const totalAmt = parseFloat(String(totalAmount))
+      if (advAmt > totalAmt) {
+        const excess = advAmt - totalAmt
+        await prisma.customer.update({
+          where: { id: customerId },
+          data:  { balance: { increment: excess } },
+        })
+      }
+    }
+
     return NextResponse.json({ ...order, orderItems: items }, { status: 201 })
   } catch (err: any) {
     console.error('Order create error:', err)
