@@ -14,7 +14,7 @@ const ROLES = ['SUPER_ADMIN', 'ADMIN', 'RECEPTION', 'DESIGNER', 'PRINTING', 'PRO
 
 // Default permission matrix — [module, SUPER_ADMIN, ADMIN, RECEPTION, DESIGNER, PRINTING, PRODUCTION, USER]
 const DEFAULT_PERMISSIONS: (string | boolean)[][] = [
-  ['Dashboard',           true,  true,  true,  true,  true,  true,  true ],
+  ['Dashboard',           true,  true,  false,  false,  false,  false,  false ],
   ['View All Orders',     true,  true,  true,  true,  true,  true,  false],
   ['Create Orders',       true,  true,  true,  false, false, false, false],
   ['Update Order Status', true,  true,  true,  true,  true,  true,  false],

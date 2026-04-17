@@ -183,6 +183,12 @@ export default function PaymentsPage() {
   const [search, setSearch]             = useState('')
   const [filterMode, setFilterMode]     = useState('')
   const [filterCustomer, setFilterCustomer] = useState('')
+  const [searchInput, setSearchInput]   = useState('')
+  // Pagination
+  const PAY_PAGE_SIZE  = 50
+  const [payPage, setPayPage]           = useState(1)
+  const [payTotal, setPayTotal]         = useState(0)
+  const [payTotalPages, setPayTotalPages] = useState(1)
 
   const [form, setForm] = useState({
     customerId:'', orderId:'', amount:'', mode:'Cash',
@@ -208,18 +214,27 @@ export default function PaymentsPage() {
     fetch('/api/customers').then(r => r.json()).then(d => setCustomers(Array.isArray(d) ? d : []))
   }, [])
 
-  const fetchPayments = useCallback(async () => {
+  const fetchPayments = useCallback(async (page = 1) => {
     setLoading(true)
     const params = new URLSearchParams()
     if (filterMode)     params.set('mode', filterMode)
     if (filterCustomer) params.set('customerId', filterCustomer)
     if (search)         params.set('search', search)
+    params.set('page',  String(page))
+    params.set('limit', String(PAY_PAGE_SIZE))
     const data = await fetch(`/api/payments?${params}`).then(r => r.json())
-    setPayments(Array.isArray(data) ? data : [])
+    if (data && typeof data === 'object' && 'payments' in data) {
+      setPayments(Array.isArray(data.payments) ? data.payments : [])
+      setPayTotal(data.total      || 0)
+      setPayTotalPages(data.totalPages || 1)
+      setPayPage(page)
+    } else {
+      setPayments(Array.isArray(data) ? data : [])
+    }
     setLoading(false)
   }, [filterMode, filterCustomer, search])
 
-  useEffect(() => { fetchPayments() }, [fetchPayments])
+  useEffect(() => { fetchPayments(1) }, [fetchPayments])
   useEffect(() => { refreshCustomers() }, [refreshCustomers])
 
   useEffect(() => {
@@ -432,8 +447,15 @@ export default function PaymentsPage() {
         )}
 
         <div style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap' }}>
-          <Input placeholder="🔍 Receipt no, customer, mobile..." value={search}
-            onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key==='Enter' && fetchPayments()}
+          <Input placeholder="🔍 Receipt no, customer, mobile..." value={searchInput}
+            onChange={e => {
+              setSearchInput(e.target.value)
+              clearTimeout((window as any).__paySearchTimer)
+              ;(window as any).__paySearchTimer = setTimeout(() => { setSearch(e.target.value); setPayPage(1) }, 350)
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { clearTimeout((window as any).__paySearchTimer); setSearch(searchInput); fetchPayments(1) }
+            }}
             style={{ flex:1, minWidth:220 }} />
           <Select style={{ width:130 }} value={filterMode} onChange={e => setFilterMode(e.target.value)}>
             <option value="">All Modes</option>
@@ -443,7 +465,7 @@ export default function PaymentsPage() {
             <option value="">All Customers</option>
             {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </Select>
-          <Button onClick={fetchPayments}>Search</Button>
+          <Button onClick={() => { clearTimeout((window as any).__paySearchTimer); setSearch(searchInput); fetchPayments(1) }}>Search</Button>
           <Button variant="primary" onClick={() => setShowModal(true)}>+ Record Payment</Button>
         </div>
 
@@ -462,7 +484,7 @@ export default function PaymentsPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Payment History ({filtered.length})</CardTitle>
+            <CardTitle>Payment History ({payTotal > 0 ? payTotal : payments.length} total)</CardTitle>
             <div style={{ fontSize:11, color:'#8892a4' }}>Today: <strong style={{ color:'#10b981' }}>{formatCurrency(todayAmt)}</strong></div>
           </CardHeader>
           {loading ? <Loading /> : filtered.length===0 ? <Empty message="No payments recorded yet." /> : (
@@ -508,6 +530,22 @@ export default function PaymentsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {payTotalPages > 1 && (
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'12px 20px', borderTop:'1px solid #2a3348', flexWrap:'wrap' }}>
+              <button onClick={()=>fetchPayments(1)} disabled={payPage===1} style={{ padding:'4px 10px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:payPage===1?'#374151':'#8892a4', cursor:payPage===1?'default':'pointer', fontSize:11 }}>« First</button>
+              <button onClick={()=>fetchPayments(payPage-1)} disabled={payPage===1} style={{ padding:'4px 12px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:payPage===1?'#374151':'#8892a4', cursor:payPage===1?'default':'pointer', fontSize:12 }}>‹ Prev</button>
+              {Array.from({length:Math.min(5,payTotalPages)},(_,i)=>{
+                let p:number
+                if(payTotalPages<=5)p=i+1; else if(payPage<=3)p=i+1; else if(payPage>=payTotalPages-2)p=payTotalPages-4+i; else p=payPage-2+i
+                return(<button key={p} onClick={()=>fetchPayments(p)} style={{ padding:'4px 10px', minWidth:30, background:payPage===p?'#3b82f6':'#1e2535', border:`1px solid ${payPage===p?'#3b82f6':'#2a3348'}`, borderRadius:6, color:payPage===p?'#fff':'#8892a4', cursor:'pointer', fontSize:11, fontWeight:payPage===p?700:400 }}>{p}</button>)
+              })}
+              <button onClick={()=>fetchPayments(payPage+1)} disabled={payPage===payTotalPages} style={{ padding:'4px 12px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:payPage===payTotalPages?'#374151':'#8892a4', cursor:payPage===payTotalPages?'default':'pointer', fontSize:12 }}>Next ›</button>
+              <button onClick={()=>fetchPayments(payTotalPages)} disabled={payPage===payTotalPages} style={{ padding:'4px 10px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:payPage===payTotalPages?'#374151':'#8892a4', cursor:payPage===payTotalPages?'default':'pointer', fontSize:11 }}>Last »</button>
+              <span style={{ fontSize:11, color:'#8892a4', marginLeft:4 }}>{((payPage-1)*PAY_PAGE_SIZE)+1}–{Math.min(payPage*PAY_PAGE_SIZE,payTotal)} of {payTotal}</span>
             </div>
           )}
         </Card>
