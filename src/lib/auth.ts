@@ -2,6 +2,7 @@ import { type NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { logActivity } from './activity'
 
 const prisma = new PrismaClient()
 
@@ -38,6 +39,29 @@ export const authOptions: NextAuthOptions = {
       return session
     },
   },
+   events: {
+    async signIn({ user }) {
+      if (user?.id) {
+        await logActivity({
+          userId: user.id,
+          action: 'LOGIN',
+          module: 'auth',
+          details: `${user.name} logged in`,
+        })
+      }
+    },
+    async signOut({ token }: any) {
+      if (token?.id) {
+        await logActivity({
+          userId: token.id,
+          action: 'LOGOUT',
+          module: 'auth',
+          details: `User logged out`,
+        })
+      }
+    },
+  },
+
   pages: { signIn: '/login' },
   session: { strategy: 'jwt' },
   secret: process.env.NEXTAUTH_SECRET,

@@ -24,6 +24,7 @@ model User {
   orders     Order[]
   statusLogs StatusLog[]
   attendance Attendance[]
+  activityLogs ActivityLog[]
 }
 
 // ─── CUSTOMERS ────────────────────────────────────────────────
@@ -356,4 +357,15 @@ model Permission {
   updatedAt DateTime @updatedAt
 
   @@unique([module, role])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  action    String   // LOGIN, LOGOUT, CREATE_ORDER, UPDATE_ORDER, etc.
+  module    String   // orders, customers, payments, etc.
+  details   String?  // extra info like order number
+  ipAddress String?
+  createdAt DateTime @default(now())
 }

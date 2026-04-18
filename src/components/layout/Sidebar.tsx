@@ -6,6 +6,8 @@ import { signOut, useSession } from 'next-auth/react'
 const NAV = [
   { section: 'Main', items: [
     { href: '/dashboard', icon: '📊', label: 'Dashboard' },
+     {href: '/activity', icon: '📝' , label: 'Activity Panel' , roles: ['SUPER_ADMIN','ADMIN'] },
+
   ]},
   { section: 'Orders', items: [
     { href: '/orders', icon: '📋', label: 'All Orders' },
@@ -28,6 +30,7 @@ const NAV = [
     { href: '/access-control', icon: '🔐', label: 'Access Control', roles: ['SUPER_ADMIN'] },
     { href: '/masters', icon: '⚙️', label: 'Masters', roles: ['SUPER_ADMIN','ADMIN'] },
     { href: '/sms', icon: '📱', label: 'SMS Alerts', roles: ['SUPER_ADMIN','ADMIN'] },
+   
   ]},
 ]
 

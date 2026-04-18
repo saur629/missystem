@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { logActivity } from '@/lib/activity'
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
     await prisma.statusLog.create({
       data: { orderId: order.id, status: 'PENDING', notes: 'Order created', userId: sessionUser?.id || null },
     })
+    
 
     // ── AUTO-CREATE PAYMENT RECORD if advance was paid ──────────────────────
     const advAmt = parseFloat(String(advancePaid))
@@ -157,6 +159,14 @@ export async function POST(req: NextRequest) {
         })
       }
     }
+    await logActivity({
+      userId: sessionUser?.id,
+      action: 'CREATE_ORDER',
+      module: 'orders',
+      details: `Created order ${orderNo}`,
+    })
+
+
 
     return NextResponse.json({ ...order, orderItems: items }, { status: 201 })
   } catch (err: any) {

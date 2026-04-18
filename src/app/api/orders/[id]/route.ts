@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { logActivity } from '@/lib/activity'
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -17,6 +18,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!order) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json(order)
 }
+
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
@@ -117,8 +119,21 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
           notes:   body.notes || null,
           userId:  sessionUser?.id ?? null,
         },
+        
       })
+      
     }
+    await logActivity({
+      userId: sessionUser?.id,
+      action: body.status ? 'UPDATE_ORDER_STATUS' : 'UPDATE_ORDER',
+      module: 'orders',
+      details: body.status
+        ? `Changed order ${params.id} status to ${body.status}`
+        : `Updated order ${params.id}`,
+    })
+
+    
+    
 
     return NextResponse.json(order)
   } catch (err: any) {
@@ -126,6 +141,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     return NextResponse.json({ error: err.message || 'Failed to update order' }, { status: 500 })
   }
 }
+
 
 export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getServerSession(authOptions)
