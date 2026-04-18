@@ -54,7 +54,7 @@ export default function ActivityPage() {
   const todayLogs  = logs.filter(l => new Date(l.createdAt).toDateString() === new Date().toDateString())
   const loginCount = logs.filter(l => l.action === 'LOGIN').length
   const orderCount = logs.filter(l => l.action.includes('ORDER')).length
-  const activeUsers = [...new Set(logs.filter(l => l.action === 'LOGIN').map(l => l.userId))].length
+ const activeUsers = Array.from(new Set(logs.filter(l => l.action === 'LOGIN').map(l => l.userId))).length
 
   // Per-user summary
   const userSummary = users.map(u => ({
