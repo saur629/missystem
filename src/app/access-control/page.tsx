@@ -12,9 +12,8 @@ const ROLE_COLOR: Record<string, string> = {
 
 const ROLES = ['SUPER_ADMIN', 'ADMIN', 'RECEPTION', 'DESIGNER', 'PRINTING', 'PRODUCTION', 'USER']
 
-// Default permission matrix — [module, SUPER_ADMIN, ADMIN, RECEPTION, DESIGNER, PRINTING, PRODUCTION, USER]
 const DEFAULT_PERMISSIONS: (string | boolean)[][] = [
-  ['Dashboard',           true,  true,  false,  false,  false,  false,  false ],
+  ['Dashboard',           true,  true,  false, false, false, false, false],
   ['View All Orders',     true,  true,  true,  true,  true,  true,  false],
   ['Create Orders',       true,  true,  true,  false, false, false, false],
   ['Update Order Status', true,  true,  true,  true,  true,  true,  false],
@@ -39,15 +38,18 @@ export default function AccessControlPage() {
 
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [permLoading, setPermLoading] = useState(true)
   const [showModal, setShowModal] = useState(false)
   const [editUser, setEditUser] = useState<any>(null)
   const [saving, setSaving] = useState(false)
+  const [savingPerms, setSavingPerms] = useState(false)
   const [permissions, setPermissions] = useState(DEFAULT_PERMISSIONS)
   const [permChanged, setPermChanged] = useState(false)
 
   const [form, setForm] = useState({ name: '', username: '', password: '', role: 'RECEPTION', mobile: '' })
   const f = (k: string, v: string) => setForm(p => ({ ...p, [k]: v }))
 
+  // Load users
   useEffect(() => {
     fetch('/api/users').then(r => r.json()).then(us => {
       setUsers(Array.isArray(us) ? us : [])
@@ -55,10 +57,44 @@ export default function AccessControlPage() {
     })
   }, [])
 
+  // ── Load permissions from DB on mount ──
+  useEffect(() => {
+    setPermLoading(true)
+    fetch('/api/permissions')
+      .then(r => r.json())
+      .then((perms: { module: string; role: string; allowed: boolean }[]) => {
+        if (!Array.isArray(perms) || perms.length === 0) {
+          // DB is empty — use defaults
+          setPermissions(DEFAULT_PERMISSIONS)
+          setPermLoading(false)
+          return
+        }
+        // Rebuild matrix from DB data
+        setPermissions(
+          DEFAULT_PERMISSIONS.map(row => {
+            const module = row[0] as string
+            return [
+              module,
+              ...ROLES.map(role => {
+                const perm = perms.find(p => p.module === module && p.role === role)
+                // If record exists in DB use it, otherwise fall back to default
+                if (perm !== undefined) return perm.allowed
+                return row[ROLES.indexOf(role) + 1] as boolean
+              }),
+            ]
+          })
+        )
+        setPermLoading(false)
+      })
+      .catch(() => {
+        setPermissions(DEFAULT_PERMISSIONS)
+        setPermLoading(false)
+      })
+  }, [])
+
   // Toggle permission cell — only Super Admin
   function togglePerm(rowIdx: number, colIdx: number) {
     if (!isSuperAdmin) { toast.error('Only Super Admin can edit permissions'); return }
-    // colIdx 1 = SUPER_ADMIN column — always keep true, can't disable
     if (colIdx === 1) { toast.error('Super Admin always has full access'); return }
     setPermissions(prev => {
       const next = prev.map(row => [...row])
@@ -68,37 +104,59 @@ export default function AccessControlPage() {
     setPermChanged(true)
   }
 
-  function savePermissions() {
-    // In a full backend implementation you'd POST these to an API
-    // For now save to localStorage as a simple persistence
-    localStorage.setItem('printflow_permissions', JSON.stringify(permissions))
-    setPermChanged(false)
-    toast.success('✅ Permissions saved!')
-  }
+  // ── Save permissions to DB ──
+  async function savePermissions() {
+    setSavingPerms(true)
+    const payload: { module: string; role: string; allowed: boolean }[] = []
+    permissions.forEach(row => {
+      const module = row[0] as string
+      ROLES.forEach((role, i) => {
+        payload.push({ module, role, allowed: row[i + 1] as boolean })
+      })
+    })
 
-  function resetPermissions() {
-    setPermissions(DEFAULT_PERMISSIONS)
-    localStorage.removeItem('printflow_permissions')
-    setPermChanged(false)
-    toast.success('Permissions reset to default')
-  }
-
-  // Load saved permissions from localStorage on mount
-useEffect(() => {
-  try {
-    const saved = localStorage.getItem('printflow_permissions')
-    if (saved) {
-      const parsed = JSON.parse(saved)
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        setPermissions(parsed)
-      } else {
-        localStorage.removeItem('printflow_permissions')
-      }
+    try {
+      const res = await fetch('/api/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: payload }),
+      })
+      if (!res.ok) throw new Error()
+      setPermChanged(false)
+      toast.success('✅ Permissions saved!')
+    } catch {
+      toast.error('Failed to save permissions')
     }
-  } catch {
-    localStorage.removeItem('printflow_permissions')
+    setSavingPerms(false)
   }
-}, [])
+
+  // ── Reset to defaults and save to DB ──
+  async function resetPermissions() {
+    setSavingPerms(true)
+    setPermissions(DEFAULT_PERMISSIONS)
+
+    const payload = DEFAULT_PERMISSIONS.flatMap(row =>
+      ROLES.map((role, i) => ({
+        module: row[0] as string,
+        role,
+        allowed: row[i + 1] as boolean,
+      }))
+    )
+
+    try {
+      const res = await fetch('/api/permissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: payload }),
+      })
+      if (!res.ok) throw new Error()
+      setPermChanged(false)
+      toast.success('Permissions reset to default')
+    } catch {
+      toast.error('Failed to reset permissions')
+    }
+    setSavingPerms(false)
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -183,16 +241,23 @@ useEffect(() => {
         {/* ── PERMISSION MATRIX ── */}
         <Card style={{ marginBottom: 16 }}>
           <CardHeader>
-            <CardTitle>Role Permission Matrix {isSuperAdmin && <span style={{ fontSize: 10, color: '#10b981', marginLeft: 8 }}>✏ Click cell to toggle</span>}</CardTitle>
+            <CardTitle>
+              Role Permission Matrix{' '}
+              {isSuperAdmin && <span style={{ fontSize: 10, color: '#10b981', marginLeft: 8 }}>✏ Click cell to toggle</span>}
+              {permLoading && <span style={{ fontSize: 10, color: '#8892a4', marginLeft: 8 }}>Loading...</span>}
+            </CardTitle>
             {isSuperAdmin && (
               <div style={{ display: 'flex', gap: 8 }}>
-                {permChanged && (
+                {permChanged ? (
                   <>
-                    <Button onClick={resetPermissions}>↺ Reset</Button>
-                    <Button variant="primary" onClick={savePermissions}>💾 Save Permissions</Button>
+                    <Button onClick={resetPermissions} disabled={savingPerms}>↺ Reset</Button>
+                    <Button variant="primary" onClick={savePermissions} disabled={savingPerms}>
+                      {savingPerms ? 'Saving...' : '💾 Save Permissions'}
+                    </Button>
                   </>
+                ) : (
+                  <span style={{ fontSize: 11, color: '#8892a4' }}>Click any ✔/✗ to edit</span>
                 )}
-                {!permChanged && <span style={{ fontSize: 11, color: '#8892a4' }}>Click any ✔/✗ to edit</span>}
               </div>
             )}
           </CardHeader>
@@ -214,7 +279,7 @@ useEffect(() => {
                     <td style={{ fontWeight: 500 }}>{row[0] as string}</td>
                     {ROLES.map((_, colIdx) => {
                       const val = row[colIdx + 1] as boolean
-                      const isLocked = colIdx === 0 // Super Admin column always locked
+                      const isLocked = colIdx === 0
                       return (
                         <td key={colIdx} style={{ textAlign: 'center' }}>
                           <div
@@ -226,7 +291,6 @@ useEffect(() => {
                               background: val ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.08)',
                               border: `1px solid ${val ? 'rgba(16,185,129,.3)' : 'rgba(239,68,68,.2)'}`,
                               transition: 'all .15s',
-                              ...(isSuperAdmin && !isLocked ? { boxShadow: 'none' } : {}),
                             }}
                             onMouseEnter={e => { if (isSuperAdmin && !isLocked) (e.currentTarget as HTMLElement).style.transform = 'scale(1.15)' }}
                             onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = 'scale(1)' }}
@@ -249,8 +313,10 @@ useEffect(() => {
             <div style={{ padding: '10px 16px', background: 'rgba(59,130,246,.08)', borderTop: '1px solid #2a3348', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 12, color: '#3b82f6' }}>⚠ You have unsaved permission changes</span>
               <div style={{ display: 'flex', gap: 8 }}>
-                <Button onClick={resetPermissions}>Cancel</Button>
-                <Button variant="primary" onClick={savePermissions}>💾 Save Changes</Button>
+                <Button onClick={resetPermissions} disabled={savingPerms}>Cancel</Button>
+                <Button variant="primary" onClick={savePermissions} disabled={savingPerms}>
+                  {savingPerms ? 'Saving...' : '💾 Save Changes'}
+                </Button>
               </div>
             </div>
           )}
@@ -286,8 +352,6 @@ useEffect(() => {
                       <td><Badge color={ROLE_COLOR[u.role] || 'gray'}>{u.role.replace('_', ' ')}</Badge></td>
                       <td style={{ color: '#8892a4' }}>{u.mobile || '—'}</td>
                       <td><Badge color={u.active ? 'green' : 'red'}>{u.active ? 'Active' : 'Inactive'}</Badge></td>
-
-                      {/* Role change dropdown — Super Admin only */}
                       {isSuperAdmin && (
                         <td>
                           {u.role !== 'SUPER_ADMIN' ? (
@@ -305,8 +369,6 @@ useEffect(() => {
                           )}
                         </td>
                       )}
-
-                      {/* Actions — Super Admin only */}
                       {isSuperAdmin && (
                         <td>
                           <div style={{ display: 'flex', gap: 6 }}>
@@ -393,4 +455,4 @@ useEffect(() => {
       </Modal>
     </PageShell>
   )
-}
+} 
