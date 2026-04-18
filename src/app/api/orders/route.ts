@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   const orders = await prisma.order.findMany({
     where,
     include: { customer: true },
-    orderBy: [{ priority: 'asc' }, { createdAt: 'desc' }],
+ orderBy: [{ createdAt: 'desc' }],
     take: 500,
   })
 

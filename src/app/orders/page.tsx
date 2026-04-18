@@ -527,6 +527,7 @@ export default function OrdersPage() {
   const [items, setItems]             = useState<any[]>([defaultFlexItem()])
   const [createdOrder, setCreatedOrder] = useState<any>(null) // WhatsApp/print popup
   const [custForm, setCustForm]       = useState({ name:'', mobile:'', email:'', city:'', gstNo:'' })
+   const [page, setPage]               = useState(1) 
 
   const handleFormChange = useCallback((k: string, v: string) => setForm(p => ({ ...p, [k]: v })), [])
 
@@ -587,6 +588,7 @@ export default function OrdersPage() {
   }, [filterStatus, filterType, search])
 
   useEffect(() => { fetchOrders() }, [fetchOrders])
+  useEffect(() => { setPage(1) }, [filterStatus, filterType, search])
   useEffect(() => {
     fetch('/api/customers').then(r => r.json()).then(d => setCustomers(Array.isArray(d) ? d : []))
   }, [])
@@ -758,81 +760,119 @@ export default function OrdersPage() {
         </div>
 
         {/* Orders Table */}
+   {/* Orders Table */}
         <Card>
           <CardHeader><CardTitle>All Orders ({orders.length})</CardTitle></CardHeader>
-          {loading ? <Loading /> : orders.length === 0 ? <Empty message="No orders yet." /> : (
-            <div style={{ overflowX:'auto' }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Order No</th><th>Date</th><th>Customer</th><th>Mobile</th>
-                    <th>Type</th><th>Items</th><th>Payment</th><th>Total</th>
-                    <th>Advance</th><th>Balance</th><th>Due Date</th><th>Priority</th>
-                    <th>Status</th><th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {orders.map(o => {
-                    const st = ORDER_STATUS[o.status]
-                    const overdue = o.dueDate && new Date(o.dueDate) < new Date() && !['DELIVERED','CANCELLED'].includes(o.status)
-                    const pItems: any[] = (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })()
-                    const allDesign = pItems.length > 0 && pItems.every((i:any) => i.designStatus==='DONE')
-                    const allPrint  = pItems.length > 0 && pItems.every((i:any) => i.printStatus==='DONE')
-                    return (
-                      <tr key={o.id}>
-                        <td style={{ color:'#3b82f6', fontFamily:'monospace', fontSize:11, fontWeight:600 }}>{o.orderNo}</td>
-                        <td style={{ color:'#8892a4', fontSize:11, whiteSpace:'nowrap' }}>{formatDate(o.date)}</td>
-                        <td style={{ fontWeight:600 }}>{o.customer?.name}</td>
-                        <td style={{ fontSize:11, color:'#8892a4' }}>{o.customer?.mobile}</td>
-                        <td><Badge color="blue">{o.orderType}</Badge></td>
-                        <td>
-                          <div style={{ fontSize:11 }}>
-                            {o.itemCount > 1
-                              ? <span style={{ color:'#f59e0b', fontWeight:600 }}>📦 {o.itemCount} items</span>
-                              : <span style={{ color:'#8892a4' }}>{o.orderType==='FLEX'?`${o.sqFt?.toFixed(1)} sqft`:`${o.jobName||'—'} ×${o.qty}`}</span>
-                            }
-                          </div>
-                          <div style={{ display:'flex', gap:4, marginTop:3 }}>
-                            <span style={{ fontSize:9, padding:'1px 5px', borderRadius:4, background:allDesign?'rgba(16,185,129,.15)':'rgba(245,158,11,.1)', color:allDesign?'#10b981':'#f59e0b' }}>🎨 {allDesign?'Done':'Design'}</span>
-                            <span style={{ fontSize:9, padding:'1px 5px', borderRadius:4, background:allPrint?'rgba(16,185,129,.15)':'rgba(139,92,246,.1)', color:allPrint?'#10b981':'#8b5cf6' }}>🖨️ {allPrint?'Done':'Print'}</span>
-                          </div>
-                        </td>
-                        <td style={{ fontSize:11, color:'#8892a4' }}>{o.paymentMethod||'—'}</td>
-                        <td style={{ color:'#10b981', fontWeight:600 }}>{formatCurrency(o.totalAmount)}</td>
-                        <td style={{ color:'#3b82f6' }}>{formatCurrency(o.advancePaid)}</td>
-                        <td style={{ color:o.balanceDue>0?'#ef4444':'#10b981', fontWeight:600 }}>{formatCurrency(o.balanceDue)}</td>
-                        <td style={{ fontSize:11, color:overdue?'#ef4444':'#8892a4', whiteSpace:'nowrap' }}>{o.dueDate?formatDate(o.dueDate):'—'}{overdue?' ⚠️':''}</td>
-                        <td><Badge color={PRIORITY_COLOR[o.priority]}>{o.priority}</Badge></td>
-                        <td><Badge color={(st as any)?.color}>{(st as any)?.icon} {(st as any)?.label}</Badge></td>
-                        <td>
-                          <div style={{ display:'flex', gap:3, flexWrap:'nowrap' }}>
-                            <Button size="sm" onClick={() => setViewOrder({ ...o, orderItems: (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })() })}>👁</Button>
-                            {/* WhatsApp quick button */}
-                            <button onClick={() => sendWhatsApp(o, (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })(), shopName)}
-                              title="Send WhatsApp"
-                              style={{ padding:'4px 7px', background:'rgba(37,211,102,.12)', border:'1px solid rgba(37,211,102,.3)', borderRadius:6, color:'#25d366', fontSize:13, cursor:'pointer', fontWeight:700 }}>
-                              💬
-                            </button>
-                            {/* Print A4 quick button */}
-                            <button onClick={() => printOrderSummary(o, (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })(), shopName)}
-                              title="Print A4"
-                              style={{ padding:'4px 7px', background:'rgba(59,130,246,.1)', border:'1px solid rgba(59,130,246,.25)', borderRadius:6, color:'#3b82f6', fontSize:13, cursor:'pointer', fontWeight:700 }}>
-                              🖨️
-                            </button>
-                            {canBook && <Button size="sm" variant="primary" onClick={() => openEdit(o)}>✏️</Button>}
-                            {canDelete && (
-                              <button onClick={() => setDeleteTarget(o)}
-                                style={{ padding:'4px 7px', background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.25)', borderRadius:6, color:'#ef4444', fontSize:11, cursor:'pointer' }}>🗑️</button>
-                            )}
-                          </div>
-                        </td>
+          {loading ? <Loading /> : orders.length === 0 ? <Empty message="No orders yet." /> : (() => {
+            const PAGE_SIZE = 20
+       
+            const totalPages = Math.ceil(orders.length / PAGE_SIZE)
+            const paginated = orders.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+            return (
+              <>
+                <div style={{ overflowX:'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Order No</th><th>Date</th><th>Customer</th><th>Mobile</th>
+                        <th>Type</th><th>Items</th><th>Payment</th><th>Total</th>
+                        <th>Advance</th><th>Balance</th><th>Due Date</th><th>Priority</th>
+                        <th>Status</th><th>Actions</th>
                       </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+                    </thead>
+                    <tbody>
+                      {paginated.map(o => {
+                        const st = ORDER_STATUS[o.status]
+                        const overdue = o.dueDate && new Date(o.dueDate) < new Date() && !['DELIVERED','CANCELLED'].includes(o.status)
+                        const pItems: any[] = (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })()
+                        const allDesign = pItems.length > 0 && pItems.every((i:any) => i.designStatus==='DONE')
+                        const allPrint  = pItems.length > 0 && pItems.every((i:any) => i.printStatus==='DONE')
+                        return (
+                          <tr key={o.id}>
+                            <td style={{ color:'#3b82f6', fontFamily:'monospace', fontSize:11, fontWeight:600 }}>{o.orderNo}</td>
+                            <td style={{ color:'#8892a4', fontSize:11, whiteSpace:'nowrap' }}>{formatDate(o.date)}</td>
+                            <td style={{ fontWeight:600 }}>{o.customer?.name}</td>
+                            <td style={{ fontSize:11, color:'#8892a4' }}>{o.customer?.mobile}</td>
+                            <td><Badge color="blue">{o.orderType}</Badge></td>
+                            <td>
+                              <div style={{ fontSize:11 }}>
+                                {o.itemCount > 1
+                                  ? <span style={{ color:'#f59e0b', fontWeight:600 }}>📦 {o.itemCount} items</span>
+                                  : <span style={{ color:'#8892a4' }}>{o.orderType==='FLEX'?`${o.sqFt?.toFixed(1)} sqft`:`${o.jobName||'—'} ×${o.qty}`}</span>
+                                }
+                              </div>
+                              <div style={{ display:'flex', gap:4, marginTop:3 }}>
+                                <span style={{ fontSize:9, padding:'1px 5px', borderRadius:4, background:allDesign?'rgba(16,185,129,.15)':'rgba(245,158,11,.1)', color:allDesign?'#10b981':'#f59e0b' }}>🎨 {allDesign?'Done':'Design'}</span>
+                                <span style={{ fontSize:9, padding:'1px 5px', borderRadius:4, background:allPrint?'rgba(16,185,129,.15)':'rgba(139,92,246,.1)', color:allPrint?'#10b981':'#8b5cf6' }}>🖨️ {allPrint?'Done':'Print'}</span>
+                              </div>
+                            </td>
+                            <td style={{ fontSize:11, color:'#8892a4' }}>{o.paymentMethod||'—'}</td>
+                            <td style={{ color:'#10b981', fontWeight:600 }}>{formatCurrency(o.totalAmount)}</td>
+                            <td style={{ color:'#3b82f6' }}>{formatCurrency(o.advancePaid)}</td>
+                            <td style={{ color:o.balanceDue>0?'#ef4444':'#10b981', fontWeight:600 }}>{formatCurrency(o.balanceDue)}</td>
+                            <td style={{ fontSize:11, color:overdue?'#ef4444':'#8892a4', whiteSpace:'nowrap' }}>{o.dueDate?formatDate(o.dueDate):'—'}{overdue?' ⚠️':''}</td>
+                            <td><Badge color={PRIORITY_COLOR[o.priority]}>{o.priority}</Badge></td>
+                            <td><Badge color={(st as any)?.color}>{(st as any)?.icon} {(st as any)?.label}</Badge></td>
+                            <td>
+                              <div style={{ display:'flex', gap:3, flexWrap:'nowrap' }}>
+                                <Button size="sm" onClick={() => setViewOrder({ ...o, orderItems: (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })() })}>👁</Button>
+                                <button onClick={() => sendWhatsApp(o, (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })(), shopName)}
+                                  title="Send WhatsApp"
+                                  style={{ padding:'4px 7px', background:'rgba(37,211,102,.12)', border:'1px solid rgba(37,211,102,.3)', borderRadius:6, color:'#25d366', fontSize:13, cursor:'pointer', fontWeight:700 }}>
+                                  💬
+                                </button>
+                                <button onClick={() => printOrderSummary(o, (() => { try { return JSON.parse(o.orderItemsJson||'[]') } catch { return [] } })(), shopName)}
+                                  title="Print A4"
+                                  style={{ padding:'4px 7px', background:'rgba(59,130,246,.1)', border:'1px solid rgba(59,130,246,.25)', borderRadius:6, color:'#3b82f6', fontSize:13, cursor:'pointer', fontWeight:700 }}>
+                                  🖨️
+                                </button>
+                                {canBook && <Button size="sm" variant="primary" onClick={() => openEdit(o)}>✏️</Button>}
+                                {canDelete && (
+                                  <button onClick={() => setDeleteTarget(o)}
+                                    style={{ padding:'4px 7px', background:'rgba(239,68,68,.1)', border:'1px solid rgba(239,68,68,.25)', borderRadius:6, color:'#ef4444', fontSize:11, cursor:'pointer' }}>🗑️</button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 16px', borderTop:'1px solid #2a3348' }}>
+                    <span style={{ fontSize:12, color:'#8892a4' }}>
+                      Showing {(page-1)*PAGE_SIZE+1}–{Math.min(page*PAGE_SIZE, orders.length)} of {orders.length} orders
+                    </span>
+                    <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                      <button onClick={() => setPage(1)} disabled={page===1}
+                        style={{ padding:'4px 8px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:page===1?'#4a5568':'#e2e8f0', cursor:page===1?'not-allowed':'pointer', fontSize:12 }}>«</button>
+                      <button onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1}
+                        style={{ padding:'4px 8px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:page===1?'#4a5568':'#e2e8f0', cursor:page===1?'not-allowed':'pointer', fontSize:12 }}>‹</button>
+                      {Array.from({ length: totalPages }, (_,i) => i+1)
+                        .filter(p => p===1 || p===totalPages || Math.abs(p-page)<=1)
+                        .reduce((acc: (number|string)[], p, i, arr) => {
+                          if (i>0 && (p as number)-(arr[i-1] as number)>1) acc.push('…')
+                          acc.push(p); return acc
+                        }, [])
+                        .map((p, i) => p==='…'
+                          ? <span key={`e${i}`} style={{ padding:'4px 6px', color:'#4a5568', fontSize:12 }}>…</span>
+                          : <button key={p} onClick={() => setPage(p as number)}
+                              style={{ padding:'4px 10px', background:page===p?'#3b82f6':'#1e2535', border:`1px solid ${page===p?'#3b82f6':'#2a3348'}`, borderRadius:6, color:page===p?'#fff':'#e2e8f0', cursor:'pointer', fontSize:12, fontWeight:page===p?700:400 }}>{p}</button>
+                        )
+                      }
+                      <button onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages}
+                        style={{ padding:'4px 8px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:page===totalPages?'#4a5568':'#e2e8f0', cursor:page===totalPages?'not-allowed':'pointer', fontSize:12 }}>›</button>
+                      <button onClick={() => setPage(totalPages)} disabled={page===totalPages}
+                        style={{ padding:'4px 8px', background:'#1e2535', border:'1px solid #2a3348', borderRadius:6, color:page===totalPages?'#4a5568':'#e2e8f0', cursor:page===totalPages?'not-allowed':'pointer', fontSize:12 }}>»</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )
+          })()}
         </Card>
       </div>
 
