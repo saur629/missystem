@@ -11,6 +11,7 @@ const NAV = [
   ]},
   { section: 'Orders', items: [
     { href: '/orders', icon: '📋', label: 'All Orders' },
+    { href: '/frame-orders', label: 'Frame Orders', icon: '🖼️' },
     { href: '/designer', icon: '🎨', label: 'Designer Panel', roles: ['SUPER_ADMIN','ADMIN','DESIGNER'] },
     { href: '/printing', icon: '🖨️', label: 'Printing Room', roles: ['SUPER_ADMIN','ADMIN','PRINTING'] },
     { href: '/production', icon: '📦', label: 'Production', roles: ['SUPER_ADMIN','ADMIN','PRODUCTION'] },
