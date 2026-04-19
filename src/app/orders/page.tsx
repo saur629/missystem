@@ -205,7 +205,7 @@ function printOrderSummary(order: any, itemsList: any[], shopName: string) {
 }
 
 // ── CONSTANTS ──────────────────────────────────────────────────
-const FLEX_MEDIA = ['Star Flex','Black Back','One Way Vision','Canvas','Backlit','Normal Vinyl','Eco Solvent','UV Print','Gloss Laminated']
+const FLEX_MEDIA = ['Star Flex','Black Back','One Way Vision','Canvas','Backlit','Normal Vinyl','Eco Solvent','UV Print','Gloss Laminated', 'Normal Flex', 'Star Gold']
 const ORDER_TYPES = ['FLEX','OFFSET','DIGITAL','SCREEN','OTHER']
 const PAYMENT_METHODS = ['Cash','UPI','NEFT/RTGS','Cheque','Card','Credit (pay later)']
 const TASK_STATUSES = ['PENDING','IN_PROGRESS','DONE'] as const
