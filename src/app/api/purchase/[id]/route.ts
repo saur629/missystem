@@ -10,3 +10,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const po = await prisma.purchase.update({ where: { id: params.id }, data: body, include: { supplier: true } })
   return NextResponse.json(po)
 }
+
+export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  await prisma.purchaseOrder.delete({ where: { id: params.id } })
+  return NextResponse.json({ success: true })
+}
