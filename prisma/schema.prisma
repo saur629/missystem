@@ -250,6 +250,7 @@ model Purchase {
   paidAmount  Float          @default(0)
   status      String         @default("ORDERED")
   notes       String?
+  itemsJson   String?  
   createdAt   DateTime       @default(now())
 
   items PurchaseItem[]
