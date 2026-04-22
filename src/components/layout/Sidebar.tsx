@@ -11,7 +11,7 @@ const NAV = [
   ]},
   { section: 'Orders', items: [
     { href: '/orders', icon: '📋', label: 'All Orders' },
-    { href: '/frame-orders', label: 'Frame Orders', icon: '🖼️' },
+   
     { href: '/designer', icon: '🎨', label: 'Designer Panel', roles: ['SUPER_ADMIN','ADMIN','DESIGNER'] },
     { href: '/printing', icon: '🖨️', label: 'Printing Room', roles: ['SUPER_ADMIN','ADMIN','PRINTING'] },
     { href: '/production', icon: '📦', label: 'Production', roles: ['SUPER_ADMIN','ADMIN','PRODUCTION'] },
@@ -27,6 +27,7 @@ const NAV = [
     { href: '/reports', icon: '📈', label: 'Reports', roles: ['SUPER_ADMIN','ADMIN'] },
   ]},
   { section: 'Admin', items: [
+    { href: '/inventory', icon: '📦', label: 'Inventory' }, 
     { href: '/customers', icon: '👥', label: 'Customers' },
     { href: '/access-control', icon: '🔐', label: 'Access Control', roles: ['SUPER_ADMIN'] },
     { href: '/masters', icon: '⚙️', label: 'Masters', roles: ['SUPER_ADMIN','ADMIN'] },

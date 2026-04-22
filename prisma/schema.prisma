@@ -373,3 +373,37 @@ model ActivityLog {
   ipAddress String?
   createdAt DateTime @default(now())
 }
+
+// ─── ADD THESE 2 NEW MODELS TO THE BOTTOM OF YOUR schema.prisma ───
+// DO NOT change anything else — just paste these at the very end
+// Your existing StockItem model stays UNTOUCHED
+
+// New universal inventory system (separate from old StockItem)
+model InventoryItem {
+  id           String               @id @default(cuid())
+  name         String
+  category     String               @default("OTHER")
+  unit         String               @default("PCS")
+  isDecimal    Boolean              @default(true)
+  hsnCode      String?
+  gstPct       Float                @default(18)
+  saleRate     Float                @default(0)
+  currentQty   Float                @default(0)
+  minQty       Float                @default(10)
+  active       Boolean              @default(true)
+  createdAt    DateTime             @default(now())
+
+  transactions InventoryTransaction[]
+}
+
+model InventoryTransaction {
+  id        String        @id @default(cuid())
+  itemId    String
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type      String        // ADD | USE | ADJUST
+  qty       Float
+  balAfter  Float
+  note      String?
+  ref       String?
+  createdAt DateTime      @default(now())
+}
