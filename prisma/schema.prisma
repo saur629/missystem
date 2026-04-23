@@ -394,6 +394,8 @@ model InventoryItem {
   createdAt    DateTime             @default(now())
 
   transactions InventoryTransaction[]
+  purchases    InventoryPurchaseItem[]
+  
 }
 
 model InventoryTransaction {
@@ -407,3 +409,46 @@ model InventoryTransaction {
   ref       String?
   createdAt DateTime      @default(now())
 }
+
+// Paste these 2 NEW models at the bottom of your prisma/schema.prisma
+// Nothing else changes — zero risk to existing data
+
+model InventoryVendor {
+  id        String            @id @default(cuid())
+  name      String
+  mobile    String?
+  email     String?
+  address   String?
+  gstNo     String?
+  notes     String?
+  active    Boolean           @default(true)
+  createdAt DateTime          @default(now())
+
+  purchases InventoryPurchase[]
+}
+
+model InventoryPurchase {
+  id         String        @id @default(cuid())
+  vendorId   String
+  vendor     InventoryVendor @relation(fields: [vendorId], references: [id])
+  billNo     String?
+  billDate   DateTime      @default(now())
+  totalAmount Float        @default(0)
+  paidAmount Float         @default(0)
+  notes      String?
+  createdAt  DateTime      @default(now())
+
+  items      InventoryPurchaseItem[]
+}
+
+model InventoryPurchaseItem {
+  id          String            @id @default(cuid())
+  purchaseId  String
+  purchase    InventoryPurchase @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        InventoryItem     @relation(fields: [itemId], references: [id])
+  qty         Float
+  rate        Float
+  amount      Float
+}
+
